@@ -1,0 +1,214 @@
+
+import crack.ascii isSpace;
+import crack.cont.array Array;
+import crack.cont.hashmap HashMap;
+import crack.io cout, FStr;
+import crack.functor Functor2;
+import crack.lang AppendBuffer, Exception;
+
+class EvalContext;
+
+## A value stored in an EvalContext.  We don't store data values directly,
+## they always are evaluated.  In this way, we can do things like override
+## evaluation.
+@abstract class Value {
+
+    ## Returns the value of the object.
+    @abstract Object evaluate(EvalContext context);
+
+    ## Invoke the function associated with the value with the given arguments.
+    @abstract Object invoke(EvalContext context, Array[Object] args);
+}
+
+class EvalContext {
+    EvalContext parent;
+    HashMap[String, Value] vars = {};
+
+    Value lookUp(String name) {
+        val := vars.get(name, null);
+        if (val is null) {
+            if (parent)
+                return parent.lookUp(name);
+            else
+                return null
+        } else {
+            return val;
+        }
+    }
+}
+
+class SimpleValue : Value {
+    Object __val;
+
+    oper init(Object val) : __val = val {}
+
+    Object evaluate(EvalContext context) {
+        return __val;
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        # Assume this is a functor.
+        val := evaluate(context);
+        func := Functor2[Object, EvalContext, Array[Object]].cast(val);
+        return func(context, args);
+    }
+}
+
+class PrintCmd : Value {
+    Object evaluate(EvalContext context) {
+        return this;
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        for (arg :in args)
+            cout `$arg`;
+        return null;
+    }
+}
+
+@abstract class Term {
+    @abstract Object evaluate(EvalContext context);
+}
+
+## A single command.
+class Command {
+    String command;
+    Array[Term] args = {};
+
+    Object evaluate(EvalContext context) {
+        cmdVal := context.lookUp(command);
+        if (!cmdVal)
+            throw Exception(FStr() `Invalid command: $command\n`);
+
+        Array[Object] evaledArgs = {};
+        for (arg :in args)
+            evaledArgs.append(arg.evaluate(context));
+        return cmdVal.invoke(context, evaledArgs);
+    }
+}
+
+## A Block of commands.
+class Block {
+    Array[Command] commands = {};
+
+    Object evaluate(EvalContext context) {
+        Object result;
+        for (command :in commands)
+            result = command.evaluate(context);
+        return result;
+    }
+}
+
+## An interpolated command: [do something]
+class InterpolatedCommand : Term {
+    Block contents;
+
+    Object evaluate(EvalContext context) {
+        return contents.evaluate(context);
+    }
+}
+
+## A string without variable interpolations.
+class LiteralString : Term {
+    String val;
+
+    oper init(String val) : val = val {}
+
+    Object evaluate(EvalContext context) {
+        return val;
+    }
+}
+
+#class InterpolatedString : Term {
+#    Array[StringTerm
+#    String value;
+#
+#    Object evaluate(EvalContext context) {
+#        AppendBuffer result = {};
+#        pos := value.lfind('$');
+#        if (pos)
+#            result.extend(value.slice(0, pos));
+
+const int
+    TOK_EOF = 0,
+    TOK_STR = 1;
+
+class Token {
+    int type;
+    String text;
+
+    oper init(int type, String text) : type = type, text = text {}
+}
+
+class Toker {
+    String contents;
+    uint pos;
+
+    oper init(String contents) : contents = contents {}
+
+    Token getToken() {
+        AppendBuffer result = {128};
+        const int
+            BASE = 0,
+
+            # A word is a sequence of non-whitespace chars which may contain
+            # interpolation sequences.
+            WORD = 1;
+        int state = BASE;
+        while (true) {
+            byte ch;
+            if (pos == contents.size)
+                ch = 0;
+            else
+                ch = contents[pos++];
+            if (state == BASE) {
+                if (!ch)
+                    return Token(TOK_EOF, null);
+                if (!isSpace(ch)) {
+                    result.append(ch);
+                    state = WORD;
+                }
+            } else if (state == WORD) {
+                if (isSpace(ch) || !ch)
+                    return Token(TOK_STR, String(result, true));
+                else
+                    result.append(ch);
+            }
+        }
+
+        return null;
+    }
+}
+
+class Parser {
+    Toker toker;
+
+    oper init(String contents) : toker(contents) {}
+
+    Block parse() {
+        Block result = {};
+        Command cmd = {};
+
+        while (true) {
+            tok := toker.getToken();
+            if (tok.type == TOK_EOF) {
+                return result;
+            } else if (tok.type == TOK_STR) {
+                if (!result.commands) {
+                    result.commands.append(cmd);
+                    cmd.command = tok.text;
+                } else {
+                    cmd.args.append(LiteralString(tok.text));
+                }
+            }
+        }
+
+        return result;
+    }
+}
+
+Parser parser = {'print foo bar'};
+block := parser.parse();
+EvalContext context = {};
+context.vars['print'] = PrintCmd();
+block.evaluate(context);
