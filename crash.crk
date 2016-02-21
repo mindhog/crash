@@ -2,7 +2,8 @@
 import crack.ascii isSpace;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-import crack.io cout, FStr;
+#import crack.ext._readline readline;
+import crack.io cout, cerr, Formatter, FStr, StringFormatter;
 import crack.functor Functor2;
 import crack.lang AppendBuffer, Exception;
 
@@ -16,6 +17,9 @@ class EvalContext;
     ## Returns the value of the object.
     @abstract Object evaluate(EvalContext context);
 
+    ## Set the value.
+    @abstract void set(Object value);
+
     ## Invoke the function associated with the value with the given arguments.
     @abstract Object invoke(EvalContext context, Array[Object] args);
 }
@@ -23,6 +27,16 @@ class EvalContext;
 class EvalContext {
     EvalContext parent;
     HashMap[String, Value] vars = {};
+
+    ## The current block.
+    Array[Value] block;
+
+    ## The instruction pointer.  This is a an index into block indicating the
+    ## next instruction to evaluated.
+    uint ip;
+
+    ## Set this to true to cause evaluation to yield.
+    bool yield;
 
     Value lookUp(String name) {
         val := vars.get(name, null);
@@ -34,6 +48,20 @@ class EvalContext {
         } else {
             return val;
         }
+    }
+
+    void define(String name, Value val) {
+        vars[name] = val;
+    }
+
+    void set(String name, Object val) {
+        # XXX needs to do a lookup and a set.
+        holder := lookUp(name);
+        if (holder is null)
+            throw Exception(FStr() I`Undefined variable $name can not be \
+                                     set (use "var" instead)`
+                            );
+        holder.set(val);
     }
 }
 
@@ -52,17 +80,68 @@ class SimpleValue : Value {
         func := Functor2[Object, EvalContext, Array[Object]].cast(val);
         return func(context, args);
     }
+
+    void set(Object value) {
+        __val = value;
+    }
 }
 
-class PrintCmd : Value {
+@abstract class Builtin : Value {
     Object evaluate(EvalContext context) {
         return this;
     }
 
+    void set(Object val) {
+        throw Exception('You can not set a builtin.');
+    }
+}
+
+class PrintCmd : Builtin {
     Object invoke(EvalContext context, Array[Object] args) {
         for (arg :in args)
             cout `$arg`;
         return null;
+    }
+}
+
+class FormatCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        StringFormatter tmp = {};
+        for (arg :in args) {
+            tmp `$arg`;
+        }
+
+        return tmp.string();
+    }
+}
+
+class VarCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: var <var> <value>');
+
+        String var = String.cast(args[0], null);
+        if (var is null)
+            throw Exception('first argument of var must be a string');
+
+        Object val = args[1];
+        context.define(var, SimpleValue(val));
+        return val;
+    }
+}
+
+class SetCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: set <var> <value>');
+
+        String var = String.cast(args[0], null);
+        if (var is null)
+            throw Exception('first argument of set must be a string');
+
+        Object val = args[1];
+        context.set(var, val);
+        return val;
     }
 }
 
@@ -71,9 +150,11 @@ class PrintCmd : Value {
 }
 
 ## A single command.
-class Command {
+class Command : Value {
     String command;
     Array[Term] args = {};
+
+    oper init(String command) : command = command {}
 
     Object evaluate(EvalContext context) {
         cmdVal := context.lookUp(command);
@@ -85,17 +166,52 @@ class Command {
             evaledArgs.append(arg.evaluate(context));
         return cmdVal.invoke(context, evaledArgs);
     }
+
+    # This is really just to implement Value's interface, but it has the
+    # ineresting side-effect of letting us evaluate a command against a fully
+    # evaluated set of arguments.
+    Object invoke(EvalContext context, Array[Object] args) {
+        cmdVal := context.lookUp(command);
+        if (!cmdVal)
+            throw Exception(FStr() `Invalid command: $command\n`);
+
+        return cmdVal.invoke(context, args);
+    }
+
+    void set(Object value) {
+        throw Exception('You may not set the value of a command.');
+    }
+
+    void formatTo(Formatter out) {
+        out `$command`;
+        for (arg :in args)
+            out ` $arg`;
+    }
 }
 
 ## A Block of commands.
 class Block {
-    Array[Command] commands = {};
+    Array[Value] commands = {};
 
     Object evaluate(EvalContext context) {
+        context.yield = false;
+        context.block = commands;
         Object result;
-        for (command :in commands)
-            result = command.evaluate(context);
+        while (context.ip < commands.count()) {
+            result = commands[context.ip++].evaluate(context);
+            if (context.yield)
+                return null;
+        }
         return result;
+    }
+
+    @final void add(Value value) {
+        commands.append(value);
+    }
+
+    void formatTo(Formatter out) {
+        for (cmd :in commands)
+            out `$cmd\n`;
     }
 }
 
@@ -117,6 +233,10 @@ class LiteralString : Term {
     Object evaluate(EvalContext context) {
         return val;
     }
+
+    void formatTo(Formatter out) {
+        out `$(val.getRepr())`;
+    }
 }
 
 #class InterpolatedString : Term {
@@ -131,7 +251,8 @@ class LiteralString : Term {
 
 const int
     TOK_EOF = 0,
-    TOK_STR = 1;
+    TOK_STR = 1,
+    TOK_SEMI = 2;
 
 class Token {
     int type;
@@ -164,15 +285,20 @@ class Toker {
             if (state == BASE) {
                 if (!ch)
                     return Token(TOK_EOF, null);
+                if (ch == b'\n' || ch == b';')
+                    return Token(TOK_SEMI, String(1, ch));
                 if (!isSpace(ch)) {
                     result.append(ch);
                     state = WORD;
                 }
             } else if (state == WORD) {
-                if (isSpace(ch) || !ch)
+                if (isSpace(ch) || !ch || ch == b';') {
+                    # Back up so we can catch it if it's a newline.
+                    if (ch) --pos;
                     return Token(TOK_STR, String(result, true));
-                else
+                } else {
                     result.append(ch);
+                }
             }
         }
 
@@ -187,28 +313,70 @@ class Parser {
 
     Block parse() {
         Block result = {};
-        Command cmd = {};
+        Command cmd;
 
         while (true) {
             tok := toker.getToken();
             if (tok.type == TOK_EOF) {
-                return result;
+                break;
             } else if (tok.type == TOK_STR) {
-                if (!result.commands) {
-                    result.commands.append(cmd);
-                    cmd.command = tok.text;
-                } else {
+                if (!cmd)
+                    cmd = Command(tok.text);
+                else
                     cmd.args.append(LiteralString(tok.text));
+            } else if (tok.type == TOK_SEMI) {
+                # Add the current command.
+                if (cmd) {
+                    result.add(cmd);
+                    cmd = null;
                 }
             }
         }
+
+        # Add the last command.
+        if (cmd)
+            result.add(cmd);
 
         return result;
     }
 }
 
-Parser parser = {'print foo bar'};
-block := parser.parse();
-EvalContext context = {};
-context.vars['print'] = PrintCmd();
-block.evaluate(context);
+## Returns a new EvalContext containing all of the normal builtin functions.
+EvalContext createRootContext() {
+    ctx := EvalContext();
+    ctx.define('print', PrintCmd());
+    ctx.define('format', FormatCmd());
+    ctx.define('var', VarCmd());
+    ctx.define('set', SetCmd());
+    return ctx;
+}
+
+Block compile(String expr) {
+    Parser parser = {expr};
+    return parser.parse();
+}
+
+Object eval(Block block, EvalContext context) {
+    if (context is null)
+        return block.evaluate(createRootContext());
+    else
+        return block.evaluate(context);
+}
+
+Object eval(Block block) { return eval(block, null); }
+
+Object eval(String expr, EvalContext context) {
+    block := compile(expr);
+    return eval(block, context);
+}
+
+Object eval(String expr) { return eval(expr, null); }
+
+#void repl() {
+#    while (true) {
+#        raw := readline('$ ');
+#        if (raw is null)
+#            return;
+#        eval(String(raw, true));
+#    }
+#}

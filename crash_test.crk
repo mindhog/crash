@@ -1,0 +1,12 @@
+
+import crack.io cout;
+import crash eval;
+
+@import crack.ann assert;
+
+@assert(eval('format foo bar') == 'foobar');
+@assert(eval('format wrong; format foo bar') == 'foobar');
+@assert(eval('format wrong\nformat foo bar') == 'foobar');
+
+cout `ok\n`;
+
