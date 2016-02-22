@@ -7,6 +7,7 @@ import crash eval;
 @assert(eval('format foo bar') == 'foobar');
 @assert(eval('format wrong; format foo bar') == 'foobar');
 @assert(eval('format wrong\nformat foo bar') == 'foobar');
+@assert(eval('format {first {second}} {\\{third}') == 'first {second}\\{third');
 
 cout `ok\n`;
 

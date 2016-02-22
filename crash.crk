@@ -2,7 +2,6 @@
 import crack.ascii isSpace;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-#import crack.ext._readline readline;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
 import crack.functor Functor2;
 import crack.lang AppendBuffer, Exception;
@@ -274,8 +273,15 @@ class Toker {
 
             # A word is a sequence of non-whitespace chars which may contain
             # interpolation sequences.
-            WORD = 1;
+            WORD = 1,
+
+            BRACK = 2,
+            BRACK_ESC = 3;
         int state = BASE;
+
+        # Number of levels of curly bracket nesting.
+        int count;
+
         while (true) {
             byte ch;
             if (pos == contents.size)
@@ -287,7 +293,11 @@ class Toker {
                     return Token(TOK_EOF, null);
                 if (ch == b'\n' || ch == b';')
                     return Token(TOK_SEMI, String(1, ch));
-                if (!isSpace(ch)) {
+
+                if (ch == b'{') {
+                    state = BRACK;
+                    count = 1;
+                } else if (!isSpace(ch)) {
                     result.append(ch);
                     state = WORD;
                 }
@@ -299,6 +309,22 @@ class Toker {
                 } else {
                     result.append(ch);
                 }
+            } else if (state == BRACK) {
+                if (ch == b'\\') {
+                    state = BRACK_ESC;
+                } else if (ch == b'{') {
+                    ++count;
+                } else if (ch == b'}') {
+                    if (!--count)
+                        return Token(TOK_STR, String(result, true));
+                } else if (!ch) {
+                    throw Exception('Premature end of file in bracketed '
+                                    'string.');
+                }
+                result.append(ch);
+            } else if (state == BRACK_ESC) {
+                result.append(ch);
+                state = BRACK;
             }
         }
 
@@ -371,12 +397,3 @@ Object eval(String expr, EvalContext context) {
 }
 
 Object eval(String expr) { return eval(expr, null); }
-
-#void repl() {
-#    while (true) {
-#        raw := readline('$ ');
-#        if (raw is null)
-#            return;
-#        eval(String(raw, true));
-#    }
-#}
