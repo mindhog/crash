@@ -1,0 +1,14 @@
+
+import crack.ext._readline readline;
+import crash createRootContext, eval;
+import crack.runtime strlen;
+
+void repl() {
+    root := createRootContext();
+    while (true) {
+        raw := readline('$ '.buffer);
+        if (raw is null)
+            return;
+        eval(String(raw, strlen(raw), true));
+    }
+}

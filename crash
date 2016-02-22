@@ -1,5 +1,5 @@
 #!/usr/local/bin/crack
 
-import crash repl;
+import repl repl;
 
 repl();
