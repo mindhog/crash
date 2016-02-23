@@ -1,5 +1,5 @@
 
-import crack.ascii isSpace;
+import crack.ascii isDigit, isSpace;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
@@ -150,13 +150,25 @@ class SetCmd : Builtin {
 
 ## A single command.
 class Command : Value {
-    String command;
+    Term command;
     Array[Term] args = {};
 
-    oper init(String command) : command = command {}
+    oper init(Term command) : command = command {}
+
+    String __getCommand(EvalContext context) {
+        # Evaluate the command and convert its value to a string if it isn't
+        # one already.
+        # TODO: split Command into LiteralCommand and EvaledCommand.
+        cmdobj := command.evaluate(context);
+        String cmdstr;
+        if ( !(cmdstr = String.cast(cmdobj, null)) )
+            cmdstr = FStr() `$cmdobj`;
+        return cmdstr;
+    }
 
     Object evaluate(EvalContext context) {
-        cmdVal := context.lookUp(command);
+
+        cmdVal := context.lookUp(__getCommand(context));
         if (!cmdVal)
             throw Exception(FStr() `Invalid command: $command\n`);
 
@@ -170,7 +182,7 @@ class Command : Value {
     # ineresting side-effect of letting us evaluate a command against a fully
     # evaluated set of arguments.
     Object invoke(EvalContext context, Array[Object] args) {
-        cmdVal := context.lookUp(command);
+        cmdVal := context.lookUp(__getCommand(context));
         if (!cmdVal)
             throw Exception(FStr() `Invalid command: $command\n`);
 
@@ -195,6 +207,7 @@ class Block {
     Object evaluate(EvalContext context) {
         context.yield = false;
         context.block = commands;
+        context.ip = 0;
         Object result;
         while (context.ip < commands.count()) {
             result = commands[context.ip++].evaluate(context);
@@ -238,6 +251,23 @@ class LiteralString : Term {
     }
 }
 
+class VarRef : Term {
+    String varName;
+
+    oper init(String varName) : varName = varName {}
+
+    Object evaluate(EvalContext context) {
+        holder := context.lookUp(varName);
+        if (!holder)
+            throw Exception(FStr() `Undefined variable $varName`);
+        return holder.evaluate(context);
+    }
+
+    void formatTo(Formatter out) {
+        out `\$$varName`;
+    }
+}
+
 #class InterpolatedString : Term {
 #    Array[StringTerm
 #    String value;
@@ -251,7 +281,8 @@ class LiteralString : Term {
 const int
     TOK_EOF = 0,
     TOK_STR = 1,
-    TOK_SEMI = 2;
+    TOK_SEMI = 2,
+    TOK_VAR = 3;
 
 class Token {
     int type;
@@ -276,7 +307,9 @@ class Toker {
             WORD = 1,
 
             BRACK = 2,
-            BRACK_ESC = 3;
+            BRACK_ESC = 3,
+
+            VAR = 4;
         int state = BASE;
 
         # Number of levels of curly bracket nesting.
@@ -297,6 +330,8 @@ class Toker {
                 if (ch == b'{') {
                     state = BRACK;
                     count = 1;
+                } else if (ch == b'$') {
+                    state = VAR;
                 } else if (!isSpace(ch)) {
                     result.append(ch);
                     state = WORD;
@@ -325,6 +360,14 @@ class Toker {
             } else if (state == BRACK_ESC) {
                 result.append(ch);
                 state = BRACK;
+            } else if (state == VAR) {
+                if (ch >= b'a' && ch <= b'z' ||
+                    ch >= b'A' && ch <= b'Z' ||
+                    ch == b'_' || isDigit(ch)
+                    )
+                    result.append(ch);
+                else
+                    return Token(TOK_VAR, String(result, true));
             }
         }
 
@@ -347,7 +390,7 @@ class Parser {
                 break;
             } else if (tok.type == TOK_STR) {
                 if (!cmd)
-                    cmd = Command(tok.text);
+                    cmd = Command(LiteralString(tok.text));
                 else
                     cmd.args.append(LiteralString(tok.text));
             } else if (tok.type == TOK_SEMI) {
@@ -356,7 +399,13 @@ class Parser {
                     result.add(cmd);
                     cmd = null;
                 }
+            } else if (tok.type == TOK_VAR) {
+                if (cmd)
+                    cmd.args.append(VarRef(tok.text));
+                else
+                    cmd = Command(VarRef(tok.text));
             }
+
         }
 
         # Add the last command.

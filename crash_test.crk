@@ -1,5 +1,5 @@
 
-import crack.io cout;
+import crack.io cout, cerr;
 import crash eval;
 
 @import crack.ann assert;
@@ -8,6 +8,8 @@ import crash eval;
 @assert(eval('format wrong; format foo bar') == 'foobar');
 @assert(eval('format wrong\nformat foo bar') == 'foobar');
 @assert(eval('format {first {second}} {\\{third}') == 'first {second}\\{third');
+@assert(eval('var x foobar; format $x') == 'foobar');
+@assert(eval('var f format; $f cmdnames') == 'cmdnames');
 
 cout `ok\n`;
 
