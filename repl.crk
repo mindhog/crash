@@ -1,15 +1,30 @@
 
-import crack.ext._readline readline;
+import crack.ext._readline add_history, readline, using_history;
 import crack.io cerr;
 import crash createRootContext, eval;
 import crack.runtime strlen;
 
+# Make sure history is initialized.
+bool _initialized;
+void initialize() {
+    if (!_initialized) {
+        cerr `initialized history\n`;
+        using_history();
+    }
+}
+
 void repl() {
+
+    # Initialize history and create the root context.
+    initialize();
     root := createRootContext();
+
     while (true) {
         raw := readline('$ '.buffer);
         if (raw is null)
             return;
+        add_history(raw);
+
         result := eval(String(raw, strlen(raw), true), root);
         cerr `$result\n`;
     }
