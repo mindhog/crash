@@ -1,6 +1,7 @@
 
 import crack.ext._readline add_history, readline, using_history;
 import crack.io cerr;
+import crack.lang Exception;
 import crash createRootContext, eval;
 import crack.runtime strlen;
 
@@ -8,7 +9,6 @@ import crack.runtime strlen;
 bool _initialized;
 void initialize() {
     if (!_initialized) {
-        cerr `initialized history\n`;
         using_history();
     }
 }
@@ -25,7 +25,11 @@ void repl() {
             return;
         add_history(raw);
 
-        result := eval(String(raw, strlen(raw), true), root);
-        cerr `$result\n`;
+        try {
+            result := eval(String(raw, strlen(raw), true), root);
+            cerr `$result\n`;
+        } catch (Exception ex) {
+            cerr `Got an exception: $ex\n`;
+        }
     }
 }
