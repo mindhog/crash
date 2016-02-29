@@ -1,0 +1,164 @@
+
+## Annotations for exposing functions to the TEL interpreter.
+## 
+## To use this, you'll need the following imports:
+##   import crack.cont.array Array;
+##   import tel.ast BuiltinTypes, Expr, IntObj, Type, Operation;
+##   import tel.builtins ConstRefOp;
+##   import tel.synlib ParseContext;
+##   import tel.prim getRegisteredType, ExtFuncOp, TypeParmCommand;
+##   import tel.ann function;
+##
+## Define a function like this:
+##   @function 
+
+
+import crack.ann readBlock;
+import crack.compiler CrackContext, Token;
+import crack.cont.array Array;
+import crack.io cout, FStr, StringFormatter;
+import crack.lang Exception;
+
+class Arg {
+    String type, name;
+    oper init(String type, String name) : type = type, name = name {}
+}
+
+void checkIdent(CrackContext ctx, Token tok) {
+    if (!tok.isIdent())
+        ctx.error(tok, 
+                  FStr() `Expected identifier, got $(tok.getText())\0`.buffer
+                  );
+}
+
+Token getIdent(CrackContext ctx) {
+    tok := ctx.getToken();
+    checkIdent(ctx, tok);
+    return tok;
+}
+
+## Returns a string to convert the crash argument to its corresponding crack
+## type.
+String convertArg(Arg arg, int index) {
+    if (arg.type == 'int')
+        return FStr() `IntObj.cast(args[$index]).val`;
+    else
+        return FStr() `$(arg.type).cast(args[$index])`;
+}
+
+## Returns a string expression that evaluates to the crash type for the 
+## specified Crack type.
+String getCmdType(String crackType) {
+    if (crackType == 'int')
+        return 'builtins.getIntType()';
+    else if (crackType == 'String')
+        return 'builtins.getStrType()';
+    else if (crackType == 'float')
+        return 'builtins.getFloatType()';
+    else
+        return FStr() `getRegisteredType(builtins, "$crackType")`;
+}
+
+String convertResult(String crackType) {
+    if (crackType == 'int')
+        return 'IntObj';
+    else if (crackType == 'float')
+        return 'FloatObj';
+    else
+        return '';
+}
+
+void function(CrackContext ctx) {
+    String className;
+
+    # read the return type
+    tok := getIdent(ctx);
+    retType := String(tok.getText());
+    
+    # read the name
+    tok = getIdent(ctx);
+    String funcName = String(tok.getText());
+
+    # if we get a dot, the first identifier is a class name
+    tok = ctx.getToken();
+    if (tok.isDot()) {
+        # this is of the form ClassName.method()
+        className = funcName;
+        tok = getIdent(ctx);
+        funcName = String(tok.getText());
+    }
+
+    # get the paren and arg list.    
+    if (!tok.isLParen()) 
+        ctx.error(tok, 
+                  FStr() `Expected left paren, got $(tok.getText())\0`.buffer
+                  );
+
+    Array[Arg] args = {};    
+    tok = ctx.getToken();
+    while (true) {
+        if (tok.isRParen())
+            break;
+        else if (tok.isComma())
+            tok = ctx.getToken();
+        
+        # should be a type identifier        
+        checkIdent(ctx, tok);
+        arg := Arg(String(tok.getText()), null);
+
+        # get the arg name
+        tok = getIdent(ctx);
+        arg.name = String(tok.getText());
+        
+        args.append(arg);
+        tok = ctx.getToken();
+        if (!tok.isComma() && !tok.isRParen())        
+            ctx.error(
+                tok, 
+                FStr() I`Comma or closing paren expected, \
+                         got $(tok.getText())\0`.buffer
+            );
+    }
+
+    # parse the function body
+    body := readBlock(ctx);
+
+    # Generate two blocks: block1 is the code before the body is expanded, 
+    # block2 is the code after the body is expanded.
+    StringFormatter out = {};
+    out I`    
+        class $funcName : Builtin {
+            
+            @static $retType __call(\n`;
+    
+    for (arg :in args)
+        out `        $(arg.type) $(arg.name),\n`;
+    
+    out `)`;
+    
+    block1 := out.cString();
+    out = StringFormatter();
+    
+    out I`
+            Object invoke(EvalContext context, Array[Object] args) {
+                result := __call(
+        `;
+
+    int i;    
+    for (arg :in args) {
+        out `        $(convertArg(arg, i++)),`;
+    }
+    out I`\
+                );
+            
+                return $(convertResult(retType))(result);
+            }
+        }
+        `;
+    
+    block2 := out.cString();
+
+    ctx.inject(@FILE.buffer, @LINE, block2.buffer);
+    body.expand(ctx, null);
+    ctx.inject(@FILE.buffer, @LINE, block1.buffer);
+}        

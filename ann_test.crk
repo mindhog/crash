@@ -1,0 +1,31 @@
+
+import crack.cont.array Array;
+import crack.io Formatter;
+import crash createRootContext, Builtin, EvalContext;
+import repl repl;
+
+@import ann function;
+
+class IntObj {
+    int val;
+    oper init(int val) : val = val {}
+    void formatTo(Formatter out) {
+        out `$val`;
+    }
+}
+
+class FloatObj {
+    float val;
+    oper init(float val) : val = val {}
+    void formatTo(Formatter out) {
+        out `$val`;
+    }
+}
+
+@function int strlen(String name) {
+    return name.size;
+}
+
+root := createRootContext();
+root.define('strlen', strlen());
+repl(root);
