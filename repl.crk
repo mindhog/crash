@@ -2,7 +2,7 @@
 import crack.ext._readline add_history, readline, using_history;
 import crack.io cerr;
 import crack.lang Exception;
-import crash createRootContext, eval;
+import crash createRootContext, eval, EvalContext;
 import crack.runtime strlen;
 
 # Make sure history is initialized.
@@ -13,12 +13,12 @@ void initialize() {
     }
 }
 
-void repl() {
+void repl(EvalContext root) {
 
     # Initialize history and create the root context.
     initialize();
-    root := createRootContext();
 
+    # Do the loop.
     while (true) {
         raw := readline('$ '.buffer);
         if (raw is null)
@@ -32,4 +32,11 @@ void repl() {
             cerr `Got an exception: $ex\n`;
         }
     }
+}
+
+void repl() {
+
+    root := createRootContext();
+    repl(root);
+
 }
