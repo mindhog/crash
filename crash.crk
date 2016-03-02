@@ -23,8 +23,9 @@ class EvalContext;
     @abstract Object invoke(EvalContext context, Array[Object] args);
 }
 
-class EvalContext {
-    EvalContext parent;
+# A stack frame.
+class Frame {
+    Frame parent;
     HashMap[String, Value] vars = {};
 
     ## The current block.
@@ -34,10 +35,7 @@ class EvalContext {
     ## next instruction to evaluated.
     uint ip;
 
-    ## Set this to true to cause evaluation to yield.
-    bool yield;
-
-    Value lookUp(String name) {
+    @final Value lookUp(String name) {
         val := vars.get(name, null);
         if (val is null) {
             if (parent)
@@ -49,18 +47,38 @@ class EvalContext {
         }
     }
 
-    void define(String name, Value val) {
+    @final void define(String name, Value val) {
         vars[name] = val;
     }
 
-    void set(String name, Object val) {
-        # XXX needs to do a lookup and a set.
+    @final void set(String name, Object val) {
         holder := lookUp(name);
         if (holder is null)
             throw Exception(FStr() I`Undefined variable $name can not be \
                                      set (use "var" instead)`
                             );
         holder.set(val);
+    }
+}
+
+class EvalContext {
+
+    ## The current stack frame.
+    Frame frame = {};
+
+    ## Set this to true to cause evaluation to yield.
+    bool yield;
+
+    @final Value lookUp(String name) {
+        return frame.lookUp(name);
+    }
+
+    @final void define(String name, Value val) {
+        frame.define(name, val);
+    }
+
+    @final void set(String name, Object val) {
+        frame.set(name, val);
     }
 }
 
@@ -144,6 +162,7 @@ class SetCmd : Builtin {
     }
 }
 
+## A word of syntax.  Quoted strings, blocks, and barewords are all terms.
 @abstract class Term {
     @abstract Object evaluate(EvalContext context);
 }
@@ -206,11 +225,11 @@ class Block {
 
     Object evaluate(EvalContext context) {
         context.yield = false;
-        context.block = commands;
-        context.ip = 0;
+        context.frame.block = commands;
+        context.frame.ip = 0;
         Object result;
-        while (context.ip < commands.count()) {
-            result = commands[context.ip++].evaluate(context);
+        while (context.frame.ip < commands.count()) {
+            result = commands[context.frame.ip++].evaluate(context);
             if (context.yield)
                 return null;
         }

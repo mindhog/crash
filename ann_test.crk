@@ -1,16 +1,29 @@
 
 import crack.cont.array Array;
-import crack.io Formatter;
-import crash createRootContext, Builtin, EvalContext;
+import crack.io cout, cerr, Formatter;
+import crack.lang cmp;
+import crash createRootContext, eval, Builtin, EvalContext;
 import repl repl;
 
 @import ann function;
+@import crack.ann assert;
 
 class IntObj {
     int val;
     oper init(int val) : val = val {}
     void formatTo(Formatter out) {
         out `$val`;
+    }
+
+    int cmp(IntObj other) {
+        return cmp(val, other.val);
+    }
+
+    int cmp(Object other) {
+        if (other := IntObj.cast(other, null))
+            return cmp(other);
+        else
+            return Object.cmp(other);
     }
 }
 
@@ -20,6 +33,17 @@ class FloatObj {
     void formatTo(Formatter out) {
         out `$val`;
     }
+
+   int cmp(IntObj other) {
+        return cmp(val, other.val);
+    }
+
+    int cmp(Object other) {
+        if (other := IntObj.cast(other, null))
+            return cmp(other);
+        else
+            return Object.cmp(other);
+    }
 }
 
 @function int strlen(String name) {
@@ -28,4 +52,8 @@ class FloatObj {
 
 root := createRootContext();
 root.define('strlen', strlen());
-repl(root);
+
+@assert(eval('strlen foobar', root) == IntObj(6));
+cout `ok\n`;
+
+
