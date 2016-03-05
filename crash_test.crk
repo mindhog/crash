@@ -11,5 +11,27 @@ import crash eval;
 @assert(eval('var x foobar; format $x') == 'foobar');
 @assert(eval('var f format; $f cmdnames') == 'cmdnames');
 
+# Verify that functions work and that we can access variables from parent contexts.
+@assert(eval('var a 100; def f {} { format $a; }; f') == '100');
+@assert(eval('def f {a b} { format $a $b }; f foo bar') == 'foobar');
+@assert(eval('var a outer; def f {} { var a inner; format $a }; f') == 'inner');
+
+# Add this back once we've got comments.
+#@assert(eval('# comment!!!\nformat foo') == 'foo');
+
+# Add this back once we can do 'var a [cmd]'
+#@assert(eval(I'
+#    def f {} {
+#        var x 1;
+#        def g {} {
+#            var y $x;
+#            set x 2;
+#            $x
+#        }
+#    }
+#    var x [f]
+#    $x
+#    ') == '2');
+
 cout `ok\n`;
 
