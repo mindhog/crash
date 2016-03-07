@@ -1,6 +1,6 @@
 
 import crack.io cout, cerr;
-import crash eval;
+import crash eval, parseString;
 
 @import crack.ann assert;
 
@@ -10,6 +10,10 @@ import crash eval;
 @assert(eval('format {first {second}} {\\{third}') == 'first {second}\\{third');
 @assert(eval('var x foobar; format $x') == 'foobar');
 @assert(eval('var f format; $f cmdnames') == 'cmdnames');
+
+# Verify interpolated expressions.
+@assert(eval('var a 100; set a [format $a 1]; format $a') == '1001');
+@assert(eval('var a 100; set a [format $a]; format $a') == '100');
 
 # Verify that functions work and that we can access variables from parent contexts.
 @assert(eval('var a 100; def f {} { format $a; }; f') == '100');
