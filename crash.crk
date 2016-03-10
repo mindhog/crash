@@ -3,7 +3,6 @@ import crack.ascii isDigit, isSpace, strip, wsplit;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
-import crack.functor Functor2;
 import crack.lang AppendBuffer, Exception;
 
 class EvalContext;
@@ -113,10 +112,10 @@ class SimpleValue : Value {
     }
 
     Object invoke(EvalContext context, Array[Object] args) {
-        # Assume this is a functor.
+        # Assume this is a Value.
         val := evaluate(context);
-        func := Functor2[Object, EvalContext, Array[Object]].cast(val);
-        return func(context, args);
+        func := Value.cast(val);
+        return func.invoke(context, args);
     }
 
     void set(Object value) {
@@ -150,6 +149,15 @@ class FormatCmd : Builtin {
         }
 
         return tmp.string();
+    }
+}
+
+## "give" just returns the value of its first argument.
+class GiveCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 1)
+            throw Exception('"give" must have exactly one argument.');
+        return args[0];
     }
 }
 
@@ -357,7 +365,7 @@ class ActiveFunc : Value {
         argVars = argVars,
         body = body {
     }
-    
+
     Object evaluate(EvalContext context) {
         return this;
     }
@@ -391,6 +399,10 @@ class ActiveFunc : Value {
     
     void set(Object value) {
         throw Exception('Can not set a function');
+    }
+    
+    void formatTo(Formatter out) {
+        out `func $argVars {\n$body}`
     }
 }
 
@@ -627,6 +639,7 @@ EvalContext createRootContext() {
     ctx := EvalContext();
     ctx.define('print', PrintCmd());
     ctx.define('format', FormatCmd());
+    ctx.define('give', GiveCmd());
     ctx.define('var', VarCmd());
     ctx.define('set', SetCmd());
     ctx.define('def', FuncDef());
