@@ -316,6 +316,8 @@ class VarRef : Term {
     }
 }
 
+## An interpolation expression - a block of the form "[ statements ... ]"  
+## Evaluates the block and returns the result.
 class InterpExpr : Term {
     Block block;
     oper init(Block block) : block = block {}
@@ -482,8 +484,16 @@ class Toker {
             BRACK = 2,
             BRACK_ESC = 3,
 
-            VAR = 4;
+            VAR = 4,
+            LIT_STR = 5,
+            LIT_STR_ESC = 6,
+            LIT_STR_HEX = 7,  # 7, 8 for first and second character
+            LIT_STR_OCT = 9,  # 9, 10, 11 for up to three characters
+            INVALID = 12;
         int state = BASE;
+        
+        # Accumulator for a hex or octal escape sequence.
+        byte val;
 
         # Number of levels of curly bracket nesting.
         int count;
@@ -509,6 +519,8 @@ class Toker {
                     return Token(TOK_LBRACK, String(1, ch));
                 } else if (ch == b']') {
                     return Token(TOK_RBRACK, String(1, ch));
+                } else if (ch == b"'") {
+                    state = LIT_STR;
                 } else if (!isSpace(ch)) {
                     result.append(ch);
                     state = WORD;
@@ -549,6 +561,97 @@ class Toker {
                 } else {
                     if (ch) --pos;
                     return Token(TOK_VAR, String(result, true));
+                }
+            } else if (state == LIT_STR) {
+                if (ch == b'\\') 
+                    state = LIT_STR_ESC;
+                else if (ch == b"'")
+                    return Token(TOK_STR, String(result, true));
+                else
+                    result.append(ch);
+            } else if (state == LIT_STR_ESC) {
+                if (ch == b'n') {
+                    ch = b'\n';
+                } else if (ch == b't') {
+                    ch = b'\t';
+                } else if (ch == b'a') {
+                    ch = b'\a';
+                } else if (ch == b'r') {
+                    ch = b'\r';
+                } else if (ch == b'b') {
+                    ch = b'\b';
+                } else if (ch == b'x') {
+                    state = LIT_STR_HEX;
+                    val = 0;
+                    continue;
+                } else if (ch == b'o') {
+                    state = LIT_STR_OCT;
+                    val = 0;
+                    continue;
+                } else if (ch >= b'0' && ch <= b'7') {
+                    state = LIT_STR_OCT + 1;
+                    val = ch - b'0';
+                    continue;
+                }
+
+                result.append(ch);
+                state = LIT_STR;
+            } else if (state >= LIT_STR_HEX && state < LIT_STR_OCT) {
+                if (ch >= b'0' && ch <= b'9')
+                    ch -= b'0';
+                else if (ch >= b'a' && ch <= b'f')
+                    ch = ch - b'a' + 10;
+                else if (ch >= b'A' && ch <= b'F')
+                    ch = ch - b'A' + 10;
+                else {
+                    # Not a legal hex character.  Add what we've got so far 
+                    # and switch to the next state.
+                    result.append(val);
+                    if (ch == b'\\') {
+                        state = LIT_STR_ESC;
+                        continue;
+                    } else if (ch == b"'") {
+                        return Token(TOK_STR, String(result, true));
+                    } else {
+                        result.append(ch);
+                        state = LIT_STR;
+                        continue;
+                    }
+                }
+
+                val = (val << 4) | ch;
+                
+                # Next character.
+                ++state;
+                if (state == LIT_STR_OCT) {
+                    result.append(val);
+                    state = LIT_STR;
+                }
+            } else if (state >= LIT_STR_OCT) {
+                if (ch >= b'0' && ch <= b'7')
+                    ch -= b'0';
+                else {
+                    # Not a legal octal character.
+                    result.append(val);
+                    if (ch == b'\\') {
+                        state = LIT_STR_ESC;
+                        continue;
+                    } else if (ch == b"'") {
+                        return Token(TOK_STR, String(result, true));
+                    } else {
+                        result.append(ch);
+                        state = LIT_STR;
+                        continue;
+                    }
+                }
+                
+                val = (val << 3) | ch;
+                
+                ++state;
+                if (state == INVALID) {
+                    result.append(val);
+                    state = LIT_STR;
+                    continue;
                 }
             }
         }

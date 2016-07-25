@@ -40,5 +40,27 @@ expr := I'
 # XXX Also try [[f]] in the example above, I think that should work...
 @assert(eval(expr) == '2');
 
+@assert(eval("give 'foo bar'") == 'foo bar');
+@assert(eval("give '\t\n\a\r\b'") == '\t\n\a\r\b');
+
+# Hex escapes.
+@assert(eval("give '\\x1fa'") == '\x1fa');
+@assert(eval("give '\\x1f'") == '\x1f');
+@assert(eval("give '\\x1F'") == '\x1f');
+@assert(eval("give '\\x1'") == '\x01');
+@assert(eval("give '\\x1\\t'") == '\x01\t');
+@assert(eval("give '\\x1G'") == '\x01G');
+
+# Octal escapes.
+@assert(eval("give '\\o001'") == '\001');
+@assert(eval("give '\\001'") == '\001');
+@assert(eval("give '\\08'") == '\08');
+@assert(eval("give '\\018'") == '\0018');
+@assert(eval("give '\\0\\t'") == '\0\t');
+
+# Multiple hex/octal escapes, ensure that the accumulator is cleared at
+# the beginning of each.
+@assert(eval("give '\\x10\\21\\o022'") == '\x10\x11\x12');
+
 cout `ok\n`;
 
