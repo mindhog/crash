@@ -62,5 +62,10 @@ expr := I'
 # the beginning of each.
 @assert(eval("give '\\x10\\21\\o022'") == '\x10\x11\x12');
 
+# Test objects.
+@assert(eval("var o [object { var a foo; def f {} { give $a } }]; $o f") ==
+         'foo'
+        );
+
 cout `ok\n`;
 

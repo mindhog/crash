@@ -70,7 +70,8 @@ class Frame {
     uint ip;
     
     oper init() {}
-    oper init(Frame parent) : parent = parent {}
+    oper init(Frame parent) : parent = parent, vars = parent.vars {}
+    oper init(Frame parent, VarDict vars) : parent = parent, vars = vars {}
 }
 
 class EvalContext {
@@ -95,6 +96,10 @@ class EvalContext {
     
     @final void pushFuncFrame() {
         frame = Frame(frame);
+    }
+    
+    @final void pushFuncFrame(VarDict vars) {
+        frame = Frame(frame, vars);
     }
     
     @final void popFuncFrame() {
@@ -191,6 +196,40 @@ class SetCmd : Builtin {
     }
 }
 
+## A crash object - this has its own variable dictionary that is injected as a 
+## stack frame when a method is invoked.
+class Obj : Builtin {
+    Obj parent;
+    VarDict vars;
+
+    oper init(VarDict vars) : vars = vars {}
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (!args)
+            return this;
+        
+        method := String.cast(args[0], null);
+        if (!method)
+            throw Exception('Method names must be strings.');
+        
+        methodObj := vars.lookUp(method);
+        if (!methodObj)
+            throw Exception(FStr() `Undefined method: $method`);
+        
+        context.pushFuncFrame(vars);
+        Object result;
+        try {
+            result = methodObj.invoke(context, args.subarray(1));
+        } catch (Exception ex) {
+            context.popFuncFrame();
+            throw Exception(ex.text);
+        }
+        context.popFuncFrame();
+        
+        return result;
+    }
+}
+
 ## A word of syntax.  Quoted strings, blocks, and barewords are all terms.
 @abstract class Term {
     @abstract Object evaluate(EvalContext context);
@@ -203,22 +242,30 @@ class Command : Value {
 
     oper init(Term command) : command = command {}
 
-    String __getCommand(EvalContext context) {
+    Value __getCommand(EvalContext context) {
         # Evaluate the command and convert its value to a string if it isn't
         # one already.
         # TODO: split Command into LiteralCommand and EvaledCommand.
         cmdobj := command.evaluate(context);
+        
+        # If the command is already a value, just return it.
+        if (valobj := Value.cast(cmdobj, null))
+            return valobj;
+        
+        # Convert it to a string and do a lookup.
         String cmdstr;
         if ( !(cmdstr = String.cast(cmdobj, null)) )
             cmdstr = FStr() `$cmdobj`;
-        return cmdstr;
+        cmdVal := context.lookUp(cmdstr);
+        if (!cmdVal)
+            throw Exception(FStr() `Invalid command: $command\n`);
+        
+        return cmdVal;
     }
 
     Object evaluate(EvalContext context) {
 
-        cmdVal := context.lookUp(__getCommand(context));
-        if (!cmdVal)
-            throw Exception(FStr() `Invalid command: $command\n`);
+        cmdVal := __getCommand(context);
 
         Array[Object] evaledArgs = {};
         for (arg :in args)
@@ -230,10 +277,7 @@ class Command : Value {
     # ineresting side-effect of letting us evaluate a command against a fully
     # evaluated set of arguments.
     Object invoke(EvalContext context, Array[Object] args) {
-        cmdVal := context.lookUp(__getCommand(context));
-        if (!cmdVal)
-            throw Exception(FStr() `Invalid command: $command\n`);
-
+        cmdVal := __getCommand(context);
         return cmdVal.invoke(context, args);
     }
 
@@ -437,6 +481,29 @@ class FuncDef : Value {
         context.define(name, result);
         
         return result;
+    }
+}
+
+## Command to create an object.
+class ObjectCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 1)
+            throw Exception('Usage: object { statement... }');
+        
+        # Parse and evaluate the body, steal the variable dict from the 
+        # resulting stack frame.
+        body := parseString(String.cast(args[0]));
+        context.pushFuncFrame();
+        try {
+            body.evaluate(context);
+        } catch (Exception ex) {
+            context.popFuncFrame();
+            throw Exception(ex.text);
+        }
+        vars := context.frame.vars;
+        context.popFuncFrame();
+        
+        return Obj(vars);
     }
 }
 
@@ -746,6 +813,7 @@ EvalContext createRootContext() {
     ctx.define('var', VarCmd());
     ctx.define('set', SetCmd());
     ctx.define('def', FuncDef());
+    ctx.define('object', ObjectCmd());
     return ctx;
 }
 
