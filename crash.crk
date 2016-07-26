@@ -29,10 +29,13 @@ class VarDict : HashMap[String, Value] {
     ## function is defined.
     VarDict parent;
 
+    oper init() {}
+    oper init(VarDict parent) : parent = parent {}
+
     @final Value lookUp(String name) {
         val := get(name, null);
         if (val is null) {
-            if (parent)
+            if (parent != null)
                 return parent.lookUp(name);
             else
                 return null
@@ -70,7 +73,7 @@ class Frame {
     uint ip;
     
     oper init() {}
-    oper init(Frame parent) : parent = parent, vars = parent.vars {}
+    oper init(Frame parent) : parent = parent, vars = VarDict(parent.vars) {}
     oper init(Frame parent, VarDict vars) : parent = parent, vars = vars {}
 }
 
@@ -258,7 +261,7 @@ class Command : Value {
             cmdstr = FStr() `$cmdobj`;
         cmdVal := context.lookUp(cmdstr);
         if (!cmdVal)
-            throw Exception(FStr() `Invalid command: $command\n`);
+            throw Exception(FStr() `Invalid command: $cmdstr\n`);
         
         return cmdVal;
     }

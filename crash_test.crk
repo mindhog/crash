@@ -1,5 +1,6 @@
 
 import crack.io cout, cerr;
+import crack.lang Exception;
 import crash eval, parseString;
 
 @import crack.ann assert;
@@ -66,6 +67,12 @@ expr := I'
 @assert(eval("var o [object { var a foo; def f {} { give $a } }]; $o f") ==
          'foo'
         );
+
+try {
+    eval("var val [blech]");
+    cerr `FAILED to throw exception in interpolated command.\n`;
+} catch (Exception ex) {
+}
 
 cout `ok\n`;
 
