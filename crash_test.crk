@@ -26,6 +26,7 @@ import crash eval, parseString;
 
 # Add this back once we can do 'var a [cmd]'
 expr := I'
+    # Here is a comment.
     def f {} {
         var x 1;
         def g {} {
@@ -34,6 +35,9 @@ expr := I'
             give $x
         }
     }
+
+    # More commented text.
+    # Multiple lines, just for the heck of it.
     var g [f]
     var x [g]
     give $x

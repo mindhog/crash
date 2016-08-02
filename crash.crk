@@ -559,7 +559,8 @@ class Toker {
             LIT_STR_ESC = 6,
             LIT_STR_HEX = 7,  # 7, 8 for first and second character
             LIT_STR_OCT = 9,  # 9, 10, 11 for up to three characters
-            INVALID = 12;
+
+            COMMENT = 12;
         int state = BASE;
         
         # Accumulator for a hex or octal escape sequence.
@@ -591,6 +592,8 @@ class Toker {
                     return Token(TOK_RBRACK, String(1, ch));
                 } else if (ch == b"'") {
                     state = LIT_STR;
+                } else if (ch == b'#') {
+                    state = COMMENT;
                 } else if (!isSpace(ch)) {
                     result.append(ch);
                     state = WORD;
@@ -637,6 +640,8 @@ class Toker {
                     state = LIT_STR_ESC;
                 else if (ch == b"'")
                     return Token(TOK_STR, String(result, true));
+                else if (!ch)
+                    throw Exception('Premature end of file in string literal.');
                 else
                     result.append(ch);
             } else if (state == LIT_STR_ESC) {
@@ -697,7 +702,7 @@ class Toker {
                     result.append(val);
                     state = LIT_STR;
                 }
-            } else if (state >= LIT_STR_OCT) {
+            } else if (state >= LIT_STR_OCT && state < COMMENT) {
                 if (ch >= b'0' && ch <= b'7')
                     ch -= b'0';
                 else {
@@ -718,18 +723,22 @@ class Toker {
                 val = (val << 3) | ch;
                 
                 ++state;
-                if (state == INVALID) {
+                if (state == COMMENT) {
                     result.append(val);
                     state = LIT_STR;
                     continue;
                 }
+            } else if (state == COMMENT) {
+                if (ch == b'\n')
+                    state = BASE;
+                else if (!ch)
+                    return Token(TOK_EOF, null);
             }
         }
 
         return null;
     }
 }
-
 
 class ParseContext {
     Block block = {};
