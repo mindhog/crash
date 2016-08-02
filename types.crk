@@ -1,0 +1,50 @@
+
+import crack.ascii parseInt;
+import crack.io Formatter, FStr;
+import crack.lang cmp, Exception;
+
+class IntObj {
+    int val;
+    oper init(int val) : val = val {}
+    void formatTo(Formatter out) {
+        out `$val`;
+    }
+
+    int cmp(IntObj other) {
+        return cmp(val, other.val);
+    }
+
+    int cmp(Object other) {
+        if (other := IntObj.cast(other, null))
+            return cmp(other);
+        else
+            return Object.cmp(other);
+    }
+
+    @static IntObj convert(Object val) {
+        if (v := String.cast(val, null))
+            return IntObj(parseInt(v));
+        else
+            throw Exception(FStr() `Cannot convert $val to an int`);
+    }
+}
+
+class FloatObj {
+    float val;
+    oper init(float val) : val = val {}
+    void formatTo(Formatter out) {
+        out `$val`;
+    }
+
+   int cmp(IntObj other) {
+        return cmp(val, other.val);
+    }
+
+    int cmp(Object other) {
+        if (other := IntObj.cast(other, null))
+            return cmp(other);
+        else
+            return Object.cmp(other);
+    }
+}
+

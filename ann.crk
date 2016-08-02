@@ -41,7 +41,7 @@ Token getIdent(CrackContext ctx) {
 ## type.
 String convertArg(Arg arg, int index) {
     if (arg.type == 'int')
-        return FStr() `IntObj.cast(args[$index]).val`;
+        return FStr() `IntObj.convert(args[$index]).val`;
     else
         return FStr() `$(arg.type).cast(args[$index])`;
 }
