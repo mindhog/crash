@@ -457,6 +457,15 @@ class ActiveFunc : Value {
 
 Block parseString(String val);
 
+## Parses a block argument.  Does not check for a valid index, but does verify 
+## that the argument can be casted to a string.
+Block parseBlockArg(Array[Object] args, int index) {
+    argVal := String.cast(args[index], null);
+    if (argVal is null)
+        throw Exception('Block argument expected');
+    return parseString(argVal);
+}
+
 ## A function definition.  When invoked, these create an ActiveFunc.
 class FuncDef : Value {
     Object evaluate(EvalContext context) {
@@ -473,7 +482,7 @@ class FuncDef : Value {
                               <body>');
         name := String.cast(args[0]);
         funcArgs := wsplit(strip(String.cast(args[1])));
-        body := parseString(String.cast(args[2]));
+        body := parseBlockArg(args, 2);
         
         # If there are no args, wsplit gives us [''], so remove that.
         if (funcArgs[0] == '')
@@ -495,7 +504,7 @@ class ObjectCmd : Builtin {
         
         # Parse and evaluate the body, steal the variable dict from the 
         # resulting stack frame.
-        body := parseString(String.cast(args[0]));
+        body := parseBlockArg(args, 0);
         context.pushFuncFrame();
         try {
             body.evaluate(context);
@@ -508,15 +517,6 @@ class ObjectCmd : Builtin {
         
         return Obj(vars);
     }
-}
-
-## Parses a block argument.  Does not check for a valid index, but does verify 
-## that the argument can be casted to a string.
-Block parseBlockArg(Array[Object] args, int index) {
-    argVal := String.cast(args[index], null);
-    if (argVal is null)
-        throw Exception('Block argument expected');
-    return parseString(argVal);
 }
 
 class IfCmd : Builtin {
