@@ -510,6 +510,90 @@ class ObjectCmd : Builtin {
     }
 }
 
+## Parses a block argument.  Does not check for a valid index, but does verify 
+## that the argument can be casted to a string.
+Block parseBlockArg(Array[Object] args, int index) {
+    argVal := String.cast(args[index], null);
+    if (argVal is null)
+        throw Exception('Block argument expected');
+    return parseString(argVal);
+}
+
+class IfCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        argCount := args.count();
+        if (argCount < 2)
+            throw Exception('usage: if <cond-block> <true-block> '
+                             '{[else|elif] ...}'
+                            );
+        cond := parseBlockArg(args, 0);
+        trueBlock := parseBlockArg(args, 1);
+        
+        # Evaluate the condition.
+        context.pushFuncFrame();
+        result := cond.evaluate(context);
+        if (result is null && context.yield)
+            return null;
+        else if (result) {
+            # Result is true, evaluate the block.
+            result = trueBlock.evaluate(context);
+            if (!context.yield)
+                context.popFuncFrame();
+            return result;
+        }
+        
+        # Evaluate elif/else.
+        int index = 2;
+        while (index < argCount) {
+            kw := String.cast(args[index], null);
+            if (kw == 'else') {
+                # Make sure we have exactly one more argument.
+                if (argCount < index + 2)
+                    throw Exception(FStr() I`Missing block after 'else'`);
+                else if (argCount != index + 2)
+                    throw Exception(FStr() I`Extra arguments after else block: \
+                                            $(args.subarray(index + 2))`
+                                    );
+
+                # Do the else block.
+                block := parseBlockArg(args, index + 1);
+                result := block.evaluate(context);
+                if (!context.yield)
+                    context.popFuncFrame();
+                return result;
+            } else if (kw == 'elif') {
+                # Make sure we have at least two more arguments.
+                if (argCount < index + 2)
+                    throw Exception('Missing condition or block after "elif"');
+                
+                cond = parseBlockArg(args, index + 1);
+                
+                # XXX Somehow when we resume, we're going to need to start 
+                # from this point instead of reevaluating the entire if 
+                # statement.
+                result = cond.evaluate(context);
+                if (result is null && context.yield)
+                    return null;
+                
+                if (result) {
+                    block := parseBlockArg(args, index + 2);
+                    result = block.evaluate(context);
+                    if (!context.yield)
+                        context.popFuncFrame();
+                    return result;
+                }
+                
+                index += 3;
+            } else {
+                cerr `$args, $index, $kw\n`;
+                throw Exception("'else' or 'elif' expected");
+            }
+        }
+        
+        return null;
+    }
+}        
+
 const int
     TOK_EOF = 0,
     TOK_STR = 1,
@@ -826,6 +910,7 @@ EvalContext createRootContext() {
     ctx.define('set', SetCmd());
     ctx.define('def', FuncDef());
     ctx.define('object', ObjectCmd());
+    ctx.define('if', IfCmd());
     return ctx;
 }
 

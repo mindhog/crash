@@ -78,5 +78,22 @@ try {
 } catch (Exception ex) {
 }
 
+# If statements
+@assert(eval("if {give 1} {give yes}") == 'yes');
+@assert(eval("if {give ''} {give fail}") == null);
+@assert(eval("if {give ''} {give fail} else {give yes}") == 'yes');
+@assert(eval("if {give ''} {give fail} elif {give true} {give yes}") ==
+         'yes'
+        );
+@assert(eval("if {give ''} {give fail1} elif {give true} {give yes} else "
+              "{give fail2}"
+             ) == 'yes'
+        );
+@assert(eval("if {give ''} {give fail1} elif {give ''} {give fail2} else "
+              "{give yes}"
+             ) == 'yes'
+        );
+
+
 cout `ok\n`;
 
