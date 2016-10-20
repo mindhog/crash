@@ -2,7 +2,7 @@
 import crack.cont.array Array;
 import crack.io cout, cerr, Formatter;
 import crack.lang cmp;
-import crash createRootContext, eval, Builtin, EvalContext;
+import crash createRootContext, eval, Builtin, EvalContext, Obj;
 import types IntObj, FloatObj;
 import repl repl;
 
@@ -13,10 +13,24 @@ import repl repl;
     return name.size;
 }
 
+class Foo {
+    alias Int = int;
+}
+
+@function(Foo.Int) int meth() {
+    return self;
+}
+
 root := createRootContext();
 root.define('strlen', strlen());
 
+# Define a method.
+o := Obj();
+o.vars.define('meth', meth(100));
+root.define('obj', o);
+
 @assert(eval('strlen foobar', root) == IntObj(6));
+@assert(eval('$obj meth', root) == IntObj(100));
 cout `ok\n`;
 
 

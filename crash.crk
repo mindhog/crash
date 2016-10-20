@@ -206,6 +206,7 @@ class Obj : Builtin {
     VarDict vars;
 
     oper init(VarDict vars) : vars = vars {}
+    oper init() : vars() {}
 
     Object invoke(EvalContext context, Array[Object] args) {
         if (!args)

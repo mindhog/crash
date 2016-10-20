@@ -13,10 +13,10 @@
 ##   @function 
 
 
-import crack.ann readBlock;
-import crack.compiler CrackContext, Token;
+import crack.ann readBlock, readDelimited, NodeList;
+import crack.compiler CrackContext, Token, TOK_LPAREN, TOK_RPAREN;
 import crack.cont.array Array;
-import crack.io cout, FStr, StringFormatter;
+import crack.io cerr, FStr, StringFormatter;
 import crack.lang Exception;
 
 class Arg {
@@ -71,8 +71,19 @@ String convertResult(String crackType) {
 void function(CrackContext ctx) {
     String className;
 
+    # See if we've got a receiver type.
+    NodeList receiverType;
+    tok := ctx.getToken();
+    if (tok.isLParen()) {
+        receiverType = readDelimited(ctx, TOK_LPAREN, TOK_RPAREN, false);
+        if (!ctx.getToken().isRParen())
+            ctx.error(tok, 'Expected closing paren'.buffer);
+    } else {
+        ctx.putBack(tok);
+    }
+
     # read the return type
-    tok := getIdent(ctx);
+    tok = getIdent(ctx);
     retType := String(tok.getText());
     
     # read the name
@@ -128,15 +139,19 @@ void function(CrackContext ctx) {
     StringFormatter out = {};
     out I`    
         class $funcName : Builtin {
-            
-            @static $retType __call(\n`;
+        `;
+    block1 := out.cString();
+    out = StringFormatter();
+    
+    out I`
+            @final $retType __call(\n`;
     
     for (arg :in args)
         out `        $(arg.type) $(arg.name),\n`;
     
     out `)`;
     
-    block1 := out.cString();
+    block2 := out.cString();
     out = StringFormatter();
     
     out I`
@@ -156,9 +171,19 @@ void function(CrackContext ctx) {
         }
         `;
     
-    block2 := out.cString();
+    block3 := out.cString();
 
-    ctx.inject(@FILE.buffer, @LINE, block2.buffer);
+    ctx.inject(@FILE.buffer, @LINE, block3.buffer);
     body.expand(ctx, null);
+    ctx.inject(@FILE.buffer, @LINE, block2.buffer);
+    if (receiverType) {
+        # Emitting this:
+        #   $receiverType self;
+        #   oper init($receiverType self) : self = self {}
+        ctx.inject(@FILE.buffer, @LINE, ' self) : self = self {}\n'.buffer);
+        receiverType.expand(ctx, null);
+        ctx.inject(@FILE.buffer, @LINE, ' self;\noper init('.buffer);
+        receiverType.expand(ctx, null);
+    }
     ctx.inject(@FILE.buffer, @LINE, block1.buffer);
 }        
