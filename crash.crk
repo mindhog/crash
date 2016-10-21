@@ -232,6 +232,11 @@ class Obj : Builtin {
         
         return result;
     }
+    
+    ## Define a name in the object's variable dictionary.
+    @final void define(String name, Value val) {
+        vars.define(name, val);
+    }
 }
 
 ## A word of syntax.  Quoted strings, blocks, and barewords are all terms.

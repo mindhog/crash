@@ -26,7 +26,7 @@ root.define('strlen', strlen());
 
 # Define a method.
 o := Obj();
-o.vars.define('meth', meth(100));
+o.define('meth', meth(100));
 root.define('obj', o);
 
 @assert(eval('strlen foobar', root) == IntObj(6));
