@@ -42,26 +42,19 @@ Token getIdent(CrackContext ctx) {
 String convertArg(Arg arg, int index) {
     if (arg.type == 'int')
         return FStr() `IntObj.convert(args[$index]).val`;
+    else if (arg.type == 'bool')
+        return FStr() `BoolObj.convert(args[$index]).val`;
+    else if (arg.type == 'float')
+        return FStr() `FloatObj.convert(args[$index]).val`;
     else
         return FStr() `$(arg.type).cast(args[$index])`;
-}
-
-## Returns a string expression that evaluates to the crash type for the 
-## specified Crack type.
-String getCmdType(String crackType) {
-    if (crackType == 'int')
-        return 'builtins.getIntType()';
-    else if (crackType == 'String')
-        return 'builtins.getStrType()';
-    else if (crackType == 'float')
-        return 'builtins.getFloatType()';
-    else
-        return FStr() `getRegisteredType(builtins, "$crackType")`;
 }
 
 String convertResult(String crackType) {
     if (crackType == 'int')
         return 'IntObj';
+    else if (crackType == 'bool')
+        return 'BoolObj';
     else if (crackType == 'float')
         return 'FloatObj';
     else

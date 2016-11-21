@@ -3,7 +3,7 @@ import crack.cont.array Array;
 import crack.io cout, cerr, Formatter;
 import crack.lang cmp;
 import crash createRootContext, eval, Builtin, EvalContext, Obj;
-import types IntObj, FloatObj;
+import types IntObj, BoolObj, FloatObj;
 import repl repl;
 
 @import ann function;
@@ -11,6 +11,14 @@ import repl repl;
 
 @function int strlen(String name) {
     return name.size;
+}
+
+@function float addPointFive(float val) {
+    return val + 0.5;
+}
+
+@function bool negate(bool val) {
+    return !val;
 }
 
 class Foo {
@@ -23,6 +31,8 @@ class Foo {
 
 root := createRootContext();
 root.define('strlen', strlen());
+root.define('addPointFive', addPointFive());
+root.define('negate', negate());
 
 # Define a method.
 o := Obj();
@@ -30,6 +40,7 @@ o.define('meth', meth(100));
 root.define('obj', o);
 
 @assert(eval('strlen foobar', root) == IntObj(6));
+@assert(eval('addPointFive 1.0', root) == FloatObj(1.5));
 @assert(eval('$obj meth', root) == IntObj(100));
 cout `ok\n`;
 

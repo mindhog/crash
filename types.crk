@@ -1,25 +1,33 @@
 
 import crack.ascii parseInt;
+import crack.runtime strtof;
 import crack.io Formatter, FStr;
-import crack.lang cmp, Exception;
+import crack.lang cmp, CString, Exception;
 
-class IntObj {
-    int val;
-    oper init(int val) : val = val {}
+## Wraps primitive types so they can be used from Crash.
+class PrimObj[T] {
+    T val;
+    oper init(T val) : val = val {}
+
     void formatTo(Formatter out) {
         out `$val`;
     }
 
-    int cmp(IntObj other) {
+    int cmp(PrimObj other) {
         return cmp(val, other.val);
     }
 
     int cmp(Object other) {
-        if (other := IntObj.cast(other, null))
+        if (other := PrimObj.cast(other, null))
             return cmp(other);
         else
             return Object.cmp(other);
     }
+}
+
+class IntObj : PrimObj[int] {
+    int val;
+    oper init(int val) : PrimObj[int](val) {}
 
     @static IntObj convert(Object val) {
         if (v := String.cast(val, null))
@@ -29,22 +37,26 @@ class IntObj {
     }
 }
 
-class FloatObj {
-    float val;
-    oper init(float val) : val = val {}
-    void formatTo(Formatter out) {
-        out `$val`;
-    }
+class BoolObj : PrimObj[bool] {
+    oper init(bool val) : PrimObj[bool](val) {}
 
-   int cmp(IntObj other) {
-        return cmp(val, other.val);
-    }
-
-    int cmp(Object other) {
-        if (other := IntObj.cast(other, null))
-            return cmp(other);
+    @static BoolObj convert(Object val) {
+        if (v := String.cast(val, null))
+            return BoolObj(parseInt(v));
         else
-            return Object.cmp(other);
+            throw Exception(FStr() `Cannot convert $val to an bool`);
+    }
+}
+
+class FloatObj : PrimObj[float] {
+    oper init(float val) : PrimObj[float](val) {}
+
+    @static FloatObj convert(Object val) {
+        import crack.io cerr;
+        if (v := String.cast(val, null)) {
+            return FloatObj(strtof(CString(v).buffer));
+        } else
+            throw Exception(FStr() `Cannot cvnvert $val to a float`);
     }
 }
 
