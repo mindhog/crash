@@ -34,6 +34,13 @@ root.define('strlen', strlen());
 root.define('addPointFive', addPointFive());
 root.define('negate', negate());
 
+@function int getInt(int val) { return val }
+root.define('getInt', getInt());
+@function float getFloat(float val) { return val }
+root.define('getFloat', getFloat());
+@function bool getBool(bool val) { return val }
+root.define('getBool', getBool());
+
 # Define a method.
 o := Obj();
 o.define('meth', meth(100));
@@ -42,6 +49,11 @@ root.define('obj', o);
 @assert(eval('strlen foobar', root) == IntObj(6));
 @assert(eval('addPointFive 1.0', root) == FloatObj(1.5));
 @assert(eval('$obj meth', root) == IntObj(100));
+
+@assert(eval('getInt [getInt 100]', root) == IntObj(100));
+@assert(eval('getFloat [getFloat 1.1]', root) == FloatObj(1.1));
+@assert(eval('getBool [getBool true]', root) == BoolObj(true));
+
 cout `ok\n`;
 
 

@@ -1,5 +1,5 @@
 
-import crack.ascii parseInt;
+import crack.ascii parseInt, toLower;
 import crack.runtime strtof;
 import crack.io Formatter, FStr;
 import crack.lang cmp, CString, Exception;
@@ -26,11 +26,12 @@ class PrimObj[T] {
 }
 
 class IntObj : PrimObj[int] {
-    int val;
     oper init(int val) : PrimObj[int](val) {}
 
     @static IntObj convert(Object val) {
-        if (v := String.cast(val, null))
+        if (v := IntObj.cast(val, null))
+            return v;
+        else if (v := String.cast(val, null))
             return IntObj(parseInt(v));
         else
             throw Exception(FStr() `Cannot convert $val to an int`);
@@ -41,8 +42,10 @@ class BoolObj : PrimObj[bool] {
     oper init(bool val) : PrimObj[bool](val) {}
 
     @static BoolObj convert(Object val) {
-        if (v := String.cast(val, null))
-            return BoolObj(parseInt(v));
+        if (v := BoolObj.cast(val, null))
+            return v;
+        else if (v := String.cast(val, null))
+            return BoolObj(toLower(v) == 'true' || parseInt(v));
         else
             throw Exception(FStr() `Cannot convert $val to an bool`);
     }
@@ -52,8 +55,9 @@ class FloatObj : PrimObj[float] {
     oper init(float val) : PrimObj[float](val) {}
 
     @static FloatObj convert(Object val) {
-        import crack.io cerr;
-        if (v := String.cast(val, null)) {
+        if (v := FloatObj.cast(val, null))
+            return v;
+        else if (v := String.cast(val, null)) {
             return FloatObj(strtof(CString(v).buffer));
         } else
             throw Exception(FStr() `Cannot cvnvert $val to a float`);
