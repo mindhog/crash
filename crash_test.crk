@@ -94,6 +94,8 @@ try {
              ) == 'yes'
         );
 
+# Import.
+@assert(eval("import [object { var x 1; var y 2}] x y; format $x $y") == '12');
 
 cout `ok\n`;
 

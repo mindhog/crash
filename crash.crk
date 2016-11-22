@@ -4,6 +4,10 @@ import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
 import crack.lang AppendBuffer, Exception;
+import crack.process Process;
+import crack.strutil StringArray;
+    
+import types IntObj;
 
 class EvalContext;
 
@@ -157,6 +161,16 @@ class FormatCmd : Builtin {
         }
 
         return tmp.string();
+    }
+}
+
+## Run a Subprocess.
+class ProcCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        StringArray argv = {};
+        for (arg :in args)
+            argv.append(FStr() `$arg`);
+        return IntObj(Process(argv, 0).run() & 0xff);
     }
 }
 
@@ -522,6 +536,21 @@ class ObjectCmd : Builtin {
         context.popFuncFrame();
         
         return Obj(vars);
+    }
+}
+
+## Command to import a set of names from an object.
+class ImportCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() < 2)
+            throw Exception('Usage: import <object> <name> ...');
+        
+        obj := Obj.cast(args[0]);
+        for (name :in args.subarray(1)) {
+            nm := String.cast(name, null);
+            context.define(nm, obj.vars[nm]);
+        }
+        return obj;
     }
 }
 
@@ -916,6 +945,8 @@ EvalContext createRootContext() {
     ctx.define('set', SetCmd());
     ctx.define('def', FuncDef());
     ctx.define('object', ObjectCmd());
+    ctx.define('import', ImportCmd());
+    ctx.define('proc', ProcCmd());
     ctx.define('if', IfCmd());
     return ctx;
 }
