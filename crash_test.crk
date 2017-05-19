@@ -97,5 +97,33 @@ try {
 # Import.
 @assert(eval("import [object { var x 1; var y 2}] x y; format $x $y") == '12');
 
+# Error locations.
+try {
+    eval("\n\nfoo");
+    @assert(false);
+} catch (Exception ex) {
+    @assert(ex.text == "line 3: Invalid command: foo");
+}
+
+# Verify that a variable at the end of a string has the correct line number
+# associated with it.
+try {
+    eval("print $bogus
+    ");
+} catch (Exception ex) {
+    @assert(ex.text == 'line 1: Undefined variable "bogus"');
+}
+
+# Verify that line numbers work for nested blocks.
+try {
+    eval("
+        if {give 1} {
+            print $bogus
+        }
+    ");
+} catch (Exception ex) {
+    @assert(ex.text == 'line 3: Undefined variable "bogus"');
+}
+
 cout `ok\n`;
 
