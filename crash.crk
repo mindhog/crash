@@ -3,13 +3,35 @@ import crack.ascii isDigit, isSpace, strip, wsplit;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
-import crack.lang AppendBuffer, Exception;
+import crack.lang AppendBuffer, Exception, SubString;
 import crack.process Process;
 import crack.strutil StringArray;
     
 import types IntObj;
 
 class EvalContext;
+
+## A source code location.
+class SrcLoc {
+    int lineNum;
+    oper init(int lineNum) : lineNum = lineNum {}
+    
+    void formatTo(Formatter out) { out `line $lineNum` }
+}
+
+class CrashError : Exception {
+    Array[SrcLoc] stack = {};
+    
+    oper init(SrcLoc loc, String text) : Exception(text) {
+        stack.append(loc);
+    }
+    
+    void formatTo(Formatter out) {
+        for (int i = stack.count() - 1; i >= 0; --i)
+            out `$(stack[i])\n`;
+        Exception.formatTo(out);
+    }
+}
 
 ## A value stored in an EvalContext.  We don't store data values directly,
 ## they always are evaluated.  In this way, we can do things like override
@@ -24,6 +46,11 @@ class EvalContext;
 
     ## Invoke the function associated with the value with the given arguments.
     @abstract Object invoke(EvalContext context, Array[Object] args);
+
+    ## Returns the source location for a value.  This exists primarily because 
+    ## Block is a sequence of Value objects, which seems questionable in 
+    ## retrospect.
+    SrcLoc getSrcLoc() { return SrcLoc(0) }
 }
 
 ## A variable dictionary.
@@ -79,6 +106,19 @@ class Frame {
     oper init() {}
     oper init(Frame parent) : parent = parent, vars = VarDict(parent.vars) {}
     oper init(Frame parent, VarDict vars) : parent = parent, vars = vars {}
+}
+
+## A string that was parsed out of the source code (has an associated line 
+## number).
+class StringLiteral : SubString {
+    int lineNum;
+    
+    oper init(String rep, int lineNum) :
+        SubString(rep, 0),
+        lineNum = lineNum {
+    }
+    
+    String getErrorLoc() { return FStr() `line $lineNum` }
 }
 
 class EvalContext {
@@ -256,6 +296,7 @@ class Obj : Builtin {
 ## A word of syntax.  Quoted strings, blocks, and barewords are all terms.
 @abstract class Term {
     @abstract Object evaluate(EvalContext context);
+    @abstract SrcLoc getSrcLoc();
 }
 
 ## A single command.
@@ -280,8 +321,14 @@ class Command : Value {
         if ( !(cmdstr = String.cast(cmdobj, null)) )
             cmdstr = FStr() `$cmdobj`;
         cmdVal := context.lookUp(cmdstr);
-        if (!cmdVal)
-            throw Exception(FStr() `Invalid command: $cmdstr\n`);
+        if (!cmdVal) {
+            if (lit := StringLiteral.cast(cmdstr))
+                throw Exception(FStr() I`$(lit.getErrorLoc()): Invalid \
+                                         command: $cmdstr`
+                                );
+            else
+                throw Exception(FStr() `Invalid command: $cmdstr`);
+        }
         
         return cmdVal;
     }
@@ -293,7 +340,14 @@ class Command : Value {
         Array[Object] evaledArgs = {};
         for (arg :in args)
             evaledArgs.append(arg.evaluate(context));
-        return cmdVal.invoke(context, evaledArgs);
+        try {
+            return cmdVal.invoke(context, evaledArgs);
+        } catch (CrashError ex) {
+            ex.stack.append(getSrcLoc());
+            throw ex;
+        } catch (Exception ex) {
+            throw CrashError(getSrcLoc(), ex.text);
+        }
     }
 
     # This is really just to implement Value's interface, but it has the
@@ -312,6 +366,10 @@ class Command : Value {
         out `$command`;
         for (arg :in args)
             out ` $arg`;
+    }
+    
+    SrcLoc getSrcLoc() {
+        return command.getSrcLoc();
     }
 }
 
@@ -349,13 +407,21 @@ class InterpolatedCommand : Term {
     Object evaluate(EvalContext context) {
         return contents.evaluate(context);
     }
+    
+    SrcLoc getSrcLoc() {
+        if (contents && contents.commands)
+            return contents.commands[0].getSrcLoc();
+        else
+            return SrcLoc(0);
+    }
 }
 
 ## A string without variable interpolations.
-class LiteralString : Term {
-    String val;
+class LiteralStringTerm : Term {
+    StringLiteral val;
+    int lineNum;
 
-    oper init(String val) : val = val {}
+    oper init(String val, int lineNum) : val(val, lineNum) {}
 
     Object evaluate(EvalContext context) {
         return val;
@@ -364,23 +430,31 @@ class LiteralString : Term {
     void formatTo(Formatter out) {
         out `$(val.getRepr())`;
     }
+    
+    SrcLoc getSrcLoc() {
+        return SrcLoc(lineNum);
+    }
 }
 
 class VarRef : Term {
-    String varName;
+    StringLiteral varName;
 
-    oper init(String varName) : varName = varName {}
+    oper init(StringLiteral varName) : varName = varName {}
 
     Object evaluate(EvalContext context) {
         holder := context.lookUp(varName);
         if (!holder)
-            throw Exception(FStr() `Undefined variable $varName`);
+            throw Exception(FStr() I`$(varName.getErrorLoc()): Undefined \
+                                     variable "$varName"`
+                            );
         return holder.evaluate(context);
     }
 
     void formatTo(Formatter out) {
         out `\$$varName`;
     }
+    
+    SrcLoc getSrcLoc() { return SrcLoc(varName.lineNum) }
 }
 
 ## An interpolation expression - a block of the form "[ statements ... ]"  
@@ -403,6 +477,13 @@ class InterpExpr : Term {
     
     void formatTo(Formatter out) {
         out `[$block]`;
+    }
+    
+    SrcLoc getSrcLoc() {
+        if (block && block.commands)
+            return block.commands[0].getSrcLoc();
+        else
+            return SrcLoc(0);
     }
 }
 
@@ -475,15 +556,20 @@ class ActiveFunc : Value {
     }
 }
 
+Block parseString(String val, int lineNum);
 Block parseString(String val);
 
 ## Parses a block argument.  Does not check for a valid index, but does verify 
 ## that the argument can be casted to a string.
 Block parseBlockArg(Array[Object] args, int index) {
-    argVal := String.cast(args[index], null);
-    if (argVal is null)
+    argVal := args[index];
+    if (s := StringLiteral.cast(argVal, null))
+        return parseString(s, s.lineNum);
+
+    argStr := String.cast(args[index], null);
+    if (argStr is null)
         throw Exception('Block argument expected');
-    return parseString(argVal);
+    return parseString(argStr);
 }
 
 ## A function definition.  When invoked, these create an ActiveFunc.
@@ -642,9 +728,14 @@ const int
 class Token {
     int type;
     String text;
+    int lineNum;
 
-    oper init(int type, String text) : type = type, text = text {}
-    
+    oper init(int type, String text, int lineNum) :
+        type = type,
+        text = text,
+        lineNum = lineNum {
+    }
+
     void formatTo(Formatter out) {
         if (text)
             out `$text`;
@@ -658,8 +749,12 @@ class Token {
 class Toker {
     String contents;
     uint pos;
+    uint lineNum;
 
-    oper init(String contents) : contents = contents {}
+    oper init(String contents, int lineNum) :
+        contents = contents,
+        lineNum = lineNum {
+    }
 
     Token getToken() {
         AppendBuffer result = {128};
@@ -687,30 +782,38 @@ class Toker {
 
         # Number of levels of curly bracket nesting.
         int count;
+        
+        # Line number at the start of the token.
+        int startLineNum;
 
         while (true) {
             byte ch;
             if (pos == contents.size)
                 ch = 0;
-            else
+            else {
                 ch = contents[pos++];
+                if (ch == b'\n') lineNum++;
+            }
             if (state == BASE) {
                 if (!ch)
-                    return Token(TOK_EOF, null);
+                    return Token(TOK_EOF, null, lineNum);
                 if (ch == b'\n' || ch == b';')
-                    return Token(TOK_SEMI, String(1, ch));
+                    return Token(TOK_SEMI, String(1, ch), lineNum);
 
                 if (ch == b'{') {
                     state = BRACK;
+                    startLineNum = lineNum;
                     count = 1;
                 } else if (ch == b'$') {
                     state = VAR;
+                    startLineNum = lineNum;
                 } else if (ch == b'[') {
-                    return Token(TOK_LBRACK, String(1, ch));
+                    return Token(TOK_LBRACK, String(1, ch), lineNum);
                 } else if (ch == b']') {
-                    return Token(TOK_RBRACK, String(1, ch));
+                    return Token(TOK_RBRACK, String(1, ch), lineNum);
                 } else if (ch == b"'") {
                     state = LIT_STR;
+                    startLineNum = lineNum;
                 } else if (ch == b'#') {
                     state = COMMENT;
                 } else if (!isSpace(ch)) {
@@ -721,10 +824,10 @@ class Toker {
                 if (isSpace(ch) || !ch || ch == b';') {
                     # Back up so we can catch it if it's a newline.
                     if (ch) --pos;
-                    return Token(TOK_STR, String(result, true));
+                    return Token(TOK_STR, String(result, true), lineNum);
                 } else if (ch == b']') {
                     --pos;
-                    return Token(TOK_STR, String(result, true));
+                    return Token(TOK_STR, String(result, true), lineNum);
                 } else {
                     result.append(ch);
                 }
@@ -735,7 +838,9 @@ class Toker {
                     ++count;
                 } else if (ch == b'}') {
                     if (!--count)
-                        return Token(TOK_STR, String(result, true));
+                        return Token(TOK_STR, String(result, true), 
+                                     startLineNum
+                                     );
                 } else if (!ch) {
                     throw Exception('Premature end of file in bracketed '
                                     'string.');
@@ -752,13 +857,13 @@ class Toker {
                     result.append(ch);
                 } else {
                     if (ch) --pos;
-                    return Token(TOK_VAR, String(result, true));
+                    return Token(TOK_VAR, String(result, true), startLineNum);
                 }
             } else if (state == LIT_STR) {
                 if (ch == b'\\') 
                     state = LIT_STR_ESC;
                 else if (ch == b"'")
-                    return Token(TOK_STR, String(result, true));
+                    return Token(TOK_STR, String(result, true), startLineNum);
                 else if (!ch)
                     throw Exception('Premature end of file in string literal.');
                 else
@@ -805,7 +910,7 @@ class Toker {
                         state = LIT_STR_ESC;
                         continue;
                     } else if (ch == b"'") {
-                        return Token(TOK_STR, String(result, true));
+                        return Token(TOK_STR, String(result, true), lineNum);
                     } else {
                         result.append(ch);
                         state = LIT_STR;
@@ -831,7 +936,7 @@ class Toker {
                         state = LIT_STR_ESC;
                         continue;
                     } else if (ch == b"'") {
-                        return Token(TOK_STR, String(result, true));
+                        return Token(TOK_STR, String(result, true), lineNum);
                     } else {
                         result.append(ch);
                         state = LIT_STR;
@@ -851,7 +956,7 @@ class Toker {
                 if (ch == b'\n')
                     state = BASE;
                 else if (!ch)
-                    return Token(TOK_EOF, null);
+                    return Token(TOK_EOF, null, lineNum);
             }
         }
 
@@ -887,7 +992,8 @@ class Parser {
     Toker toker;
     ParseContext context = ParseContext();
 
-    oper init(String contents) : toker(contents) {}
+    oper init(String contents, int lineNum) : toker(contents, lineNum) {}
+    oper init(String contents) : toker(contents, 1) {}
 
     ## Parse a block.  If 'topLevel', expect an EOF terminator, otherwise 
     ## expect a right bracket (']').
@@ -899,11 +1005,13 @@ class Parser {
                     throw Exception('Premature EOF.');
                 break;
             } else if (tok.type == TOK_STR) {
-                context.addTerm(LiteralString(tok.text));
+                context.addTerm(LiteralStringTerm(tok.text, tok.lineNum));
             } else if (tok.type == TOK_SEMI) {
                 context.endCommand();
             } else if (tok.type == TOK_VAR) {
-                context.addTerm(VarRef(tok.text));
+                context.addTerm(
+                    VarRef(StringLiteral(tok.text, tok.lineNum))
+                );
             } else if (tok.type == TOK_LBRACK) {
                 context = ParseContext(context);
                 result := InterpExpr(parseBlock(false));
@@ -911,12 +1019,16 @@ class Parser {
                 context.addTerm(result);
             } else if (tok.type == TOK_RBRACK) {
                 if (topLevel)
-                    throw Exception('Closing bracket not expected at this time.');
+                    throw Exception(
+                        FStr() I`line $(tok.lineNum): Closing bracket not \
+                                 expected at this time.`
+                    );
                 break;
             } else {
-                throw Exception(FStr() I`Token $(tok) not expected at this 
-                                         time.`
-                                );
+                throw Exception(
+                    FStr() I`line $(tok.lineNum): Token $(tok) not expected \
+                             at this time.`
+                );
             }
         }
 
@@ -934,6 +1046,10 @@ class Parser {
 ## Parse a block out of a string.
 Block parseString(String val) {
     return Parser(val).parse();
+}
+
+Block parseString(String val, int lineNum) {
+    return Parser(val, lineNum).parse();
 }
 
 ## Returns a new EvalContext containing all of the normal builtin functions.
