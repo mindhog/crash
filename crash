@@ -1,5 +1,9 @@
 #!/usr/local/bin/crack
 
+import crash createRootContext;
 import repl repl;
+import stdlib stdlib;
 
-repl();
+ctx := createRootContext();
+ctx.define('stdlib', stdlib());
+repl(ctx);

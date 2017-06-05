@@ -1,0 +1,51 @@
+## Crash standard library.
+
+import crack.cont.array Array;
+import crack.fs makePath;
+import crack.io FStr, Reader, Seekable, Writer;
+import crack.lang Exception;
+import crash createRootContext, eval, Builtin, EvalContext, Obj;
+import types IntObj;
+
+@import crash.ann function;
+
+@function(Reader) String read(int bytes) {
+    return self.read(bytes);
+}
+
+@function(Writer) int write(String data) {
+    self.write(data);
+    return 0;
+}
+
+class ValueError : Exception {
+    oper init(String message) : Exception(message) {}
+}
+
+## Open a file for read/write/append.
+## Argument can be 'r', 'w', or 'a'.
+@function Obj open(String filename, String mode) {
+    result := Obj();
+    if (mode == 'r') {
+        reader := makePath(filename).reader();
+        result.define('read', read(reader));
+    } else if (mode == 'w') {
+        writer := makePath(filename).writer();
+        result.define('write', write(writer));
+    } else if (mode == 'a') {
+        appender := makePath(filename).appender();
+        result.define('write', write(appender));
+    } else {
+        throw ValueError(FStr() `Unknown open mode $(mode.getRepr())`);
+    }
+    return result;
+}
+
+## Creates a module object for the standard library.
+## Functions defined are:
+##  open <filename> <mode>
+@function Obj stdlib() {
+    obj := Obj();
+    obj.define('open', open());
+    return obj;
+}

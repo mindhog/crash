@@ -931,6 +931,7 @@ class Parser {
     }
 }
 
+## Parse a block out of a string.
 Block parseString(String val) {
     return Parser(val).parse();
 }
