@@ -111,14 +111,14 @@ class Frame {
 ## A string that was parsed out of the source code (has an associated line 
 ## number).
 class StringLiteral : SubString {
-    int lineNum;
+    SrcLoc srcLoc;
     
-    oper init(String rep, int lineNum) :
+    oper init(String rep, SrcLoc srcLoc) :
         SubString(rep, 0),
-        lineNum = lineNum {
+        srcLoc = srcLoc {
     }
     
-    String getErrorLoc() { return FStr() `line $lineNum` }
+    SrcLoc getErrorLoc() { return srcLoc }
 }
 
 class EvalContext {
@@ -323,9 +323,9 @@ class Command : Value {
         cmdVal := context.lookUp(cmdstr);
         if (!cmdVal) {
             if (lit := StringLiteral.cast(cmdstr))
-                throw Exception(FStr() I`$(lit.getErrorLoc()): Invalid \
-                                         command: $cmdstr`
-                                );
+                throw CrashError(getSrcLoc(), 
+                                 FStr() `Invalid command: $cmdstr`
+                                 );
             else
                 throw Exception(FStr() `Invalid command: $cmdstr`);
         }
@@ -344,6 +344,7 @@ class Command : Value {
             return cmdVal.invoke(context, evaledArgs);
         } catch (CrashError ex) {
             ex.stack.append(getSrcLoc());
+            ex.oper bind();
             throw ex;
         } catch (Exception ex) {
             throw CrashError(getSrcLoc(), ex.text);
@@ -383,7 +384,16 @@ class Block {
         context.frame.ip = 0;
         Object result;
         while (context.frame.ip < commands.count()) {
-            result = commands[context.frame.ip++].evaluate(context);
+            command := commands[context.frame.ip++];
+            try {
+                result = command.evaluate(context);
+            } catch (CrashError ex) {
+                ex.stack.append(command.getSrcLoc());
+                # TODO: Remove this 'oper bind()' when crack 1.2 is released 
+                # (it works around a bug in exception memory management)
+                ex.oper bind();
+                throw ex;
+            }
             if (context.yield)
                 return null;
         }
@@ -419,9 +429,8 @@ class InterpolatedCommand : Term {
 ## A string without variable interpolations.
 class LiteralStringTerm : Term {
     StringLiteral val;
-    int lineNum;
 
-    oper init(String val, int lineNum) : val(val, lineNum) {}
+    oper init(String val, SrcLoc srcLoc) : val(val, srcLoc) {}
 
     Object evaluate(EvalContext context) {
         return val;
@@ -432,7 +441,7 @@ class LiteralStringTerm : Term {
     }
     
     SrcLoc getSrcLoc() {
-        return SrcLoc(lineNum);
+        return val.srcLoc;
     }
 }
 
@@ -444,9 +453,9 @@ class VarRef : Term {
     Object evaluate(EvalContext context) {
         holder := context.lookUp(varName);
         if (!holder)
-            throw Exception(FStr() I`$(varName.getErrorLoc()): Undefined \
-                                     variable "$varName"`
-                            );
+            throw CrashError(varName.getErrorLoc(),
+                             FStr() I`Undefined variable "$varName"`
+                             );
         return holder.evaluate(context);
     }
 
@@ -454,7 +463,7 @@ class VarRef : Term {
         out `\$$varName`;
     }
     
-    SrcLoc getSrcLoc() { return SrcLoc(varName.lineNum) }
+    SrcLoc getSrcLoc() { return varName.srcLoc }
 }
 
 ## An interpolation expression - a block of the form "[ statements ... ]"  
@@ -564,7 +573,7 @@ Block parseString(String val);
 Block parseBlockArg(Array[Object] args, int index) {
     argVal := args[index];
     if (s := StringLiteral.cast(argVal, null))
-        return parseString(s, s.lineNum);
+        return parseString(s, s.srcLoc.lineNum);
 
     argStr := String.cast(args[index], null);
     if (argStr is null)
@@ -1005,12 +1014,12 @@ class Parser {
                     throw Exception('Premature EOF.');
                 break;
             } else if (tok.type == TOK_STR) {
-                context.addTerm(LiteralStringTerm(tok.text, tok.lineNum));
+                context.addTerm(LiteralStringTerm(tok.text, SrcLoc(tok.lineNum)));
             } else if (tok.type == TOK_SEMI) {
                 context.endCommand();
             } else if (tok.type == TOK_VAR) {
                 context.addTerm(
-                    VarRef(StringLiteral(tok.text, tok.lineNum))
+                    VarRef(StringLiteral(tok.text, SrcLoc(tok.lineNum)))
                 );
             } else if (tok.type == TOK_LBRACK) {
                 context = ParseContext(context);

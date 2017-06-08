@@ -1,7 +1,7 @@
 
 import crack.io cout, cerr;
 import crack.lang Exception;
-import crash eval, parseString;
+import crash eval, parseString, CrashError;
 
 @import crack.ann assert;
 
@@ -101,8 +101,8 @@ try {
 try {
     eval("\n\nfoo");
     @assert(false);
-} catch (Exception ex) {
-    @assert(ex.text == "line 3: Invalid command: foo");
+} catch (CrashError ex) {
+    @assert(ex.stack && ex.stack[0].lineNum == 3);
 }
 
 # Verify that a variable at the end of a string has the correct line number
@@ -110,8 +110,8 @@ try {
 try {
     eval("print $bogus
     ");
-} catch (Exception ex) {
-    @assert(ex.text == 'line 1: Undefined variable "bogus"');
+} catch (CrashError ex) {
+    @assert(ex.stack && ex.stack[0].lineNum == 1);
 }
 
 # Verify that line numbers work for nested blocks.
@@ -121,8 +121,8 @@ try {
             print $bogus
         }
     ");
-} catch (Exception ex) {
-    @assert(ex.text == 'line 3: Undefined variable "bogus"');
+} catch (CrashError ex) {
+    @assert(ex.stack.count() == 4 && ex.stack[0].lineNum == 3);
 }
 
 cout `ok\n`;
