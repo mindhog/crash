@@ -125,5 +125,12 @@ try {
     @assert(ex.stack.count() == 4 && ex.stack[0].lineNum == 3);
 }
 
+# Verify that we can evalfile.  This has to be run in the current directory.
+@assert(eval("
+    var tm [evalfile testmod.crash]
+    tm echo 'test data'
+") == 'test data');
+
+
 cout `ok\n`;
 

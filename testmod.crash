@@ -1,0 +1,4 @@
+
+def echo {arg} {
+    give $arg
+}

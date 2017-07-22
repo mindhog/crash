@@ -1,5 +1,6 @@
 
 import crack.ascii isDigit, isSpace, strip, wsplit;
+import crack.fs makePath;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
@@ -128,6 +129,11 @@ class EvalContext {
 
     ## Set this to true to cause evaluation to yield.
     bool yield;
+
+    oper init() {}
+
+    ## Copies another EvalContext.
+    oper init(EvalContext other) : frame = other.frame {}
 
     @final Value lookUp(String name) {
         return frame.vars.lookUp(name);
@@ -279,6 +285,7 @@ class Obj : Builtin {
         try {
             result = methodObj.invoke(context, args.subarray(1));
         } catch (Exception ex) {
+            ex.oper bind();
             context.popFuncFrame();
             throw Exception(ex.text);
         }
@@ -646,6 +653,36 @@ class ImportCmd : Builtin {
             context.define(nm, obj.vars[nm]);
         }
         return obj;
+    }
+}
+
+## Command to evaluate a file and return the module as an object. You can 
+## import symbols defined in the file from the result, for example:
+##      import [evalfile foo.crash] bar baz
+##
+## Alternately, you can simply assign the result to a variable which becomes a 
+## sort of namespace:
+##      var foo [evalfile foo.crash]
+##      foo bar
+##
+## The file is evaluated in a subcontext of the current context, which 
+## isn't very good as it allows definitions to leak into the file's context.
+class EvalfileCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 1)
+            throw Exception('Usage: evalfile <filename>');
+        
+        name := String.cast(args[0]);
+        contents := makePath(name).readAll();
+        context.pushFuncFrame();
+        parseString(contents).evaluate(context);
+        if (!context.yield) {
+            result := Obj(context.frame.vars);
+            context.popFuncFrame();
+            return result;
+        } else {
+            return null;
+        }
     }
 }
 
@@ -1072,6 +1109,7 @@ EvalContext createRootContext() {
     ctx.define('def', FuncDef());
     ctx.define('object', ObjectCmd());
     ctx.define('import', ImportCmd());
+    ctx.define('evalfile', EvalfileCmd());
     ctx.define('proc', ProcCmd());
     ctx.define('if', IfCmd());
     return ctx;
