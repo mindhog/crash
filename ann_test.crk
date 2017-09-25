@@ -2,7 +2,7 @@
 import crack.cont.array Array;
 import crack.io cout, cerr, Formatter;
 import crack.lang cmp;
-import crash createRootContext, eval, Builtin, EvalContext, Obj;
+import crash createRootContext, eval, Builtin, EvalContext, Obj, Value;
 import types IntObj, BoolObj, FloatObj;
 import repl repl;
 
@@ -53,6 +53,20 @@ root.define('obj', o);
 @assert(eval('getInt [getInt 100]', root) == IntObj(100));
 @assert(eval('getFloat [getFloat 1.1]', root) == FloatObj(1.1));
 @assert(eval('getBool [getBool true]', root) == BoolObj(true));
+
+# Test automatic conversion.
+Value wrapFoo(EvalContext context, Object foo) {
+    obj := Obj();
+    self := Foo.cast(foo);
+    @function(Foo) String method() { return 'ok' }
+    obj.define('method', method(self));
+    return obj;
+}
+@function Foo makeFoo() { return Foo() }
+root.define('Foo', makeFoo());
+root.defineConverter(Foo, wrapFoo);
+@assert(eval('var f [Foo]; f method', root) == 'ok');
+@assert(eval('[Foo] method', root) == 'ok');
 
 cout `ok\n`;
 

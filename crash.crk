@@ -2,6 +2,7 @@
 import crack.ascii isDigit, isSpace, strip, wsplit;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
+import crack.functor Functor2;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
 import crack.lang AppendBuffer, Exception;
 import crack.process Process;
@@ -10,6 +11,8 @@ import crack.strutil StringArray;
 import types IntObj;
 
 class EvalContext;
+
+@export_symbols ValueConverter;
 
 ## A value stored in an EvalContext.  We don't store data values directly,
 ## they always are evaluated.  In this way, we can do things like override
@@ -81,6 +84,10 @@ class Frame {
     oper init(Frame parent, VarDict vars) : parent = parent, vars = vars {}
 }
 
+# Function to return a Value for an object (essentially, encapsulating the 
+# object in something that we can invoke methods on).
+alias ValueConverter = Functor2[Value, EvalContext, Object];
+
 class EvalContext {
 
     ## The current stack frame.
@@ -88,6 +95,10 @@ class EvalContext {
 
     ## Set this to true to cause evaluation to yield.
     bool yield;
+    
+    ## Mapping from class id to a function that returns a Value object for 
+    ## instances of that class.
+    HashMap[uintz, ValueConverter] __classMap = {};
 
     @final Value lookUp(String name) {
         return frame.vars.lookUp(name);
@@ -112,7 +123,27 @@ class EvalContext {
     @final void popFuncFrame() {
         frame = frame.parent;
     }
+
+    ## Define a value converter for the specified class.    
+    ##
+    ## A ValueConverter converts an instance of a class to a Value object, 
+    ## effectively allowing methods to be called on it from crash.
+    @final void defineConverter(Class cls, ValueConverter converter) {
+        __classMap[uintz(cls)] = converter;
+    }
+    
+    @final void defineConverter(Class cls, 
+                                function[Value, EvalContext, Object] converter) {
+        __classMap[uintz(cls)] = ValueConverter.Wrap(converter);
+    }
+    
+    ## Get the value converter for the specified class.
+    @final ValueConverter getConverter(Class cls) {
+        return __classMap.get(uintz(cls));
+    }
 }
+
+Value createValueWrapper(EvalContext context, Object obj);
 
 class SimpleValue : Value {
     Object __val;
@@ -126,7 +157,10 @@ class SimpleValue : Value {
     Object invoke(EvalContext context, Array[Object] args) {
         # Assume this is a Value.
         val := evaluate(context);
-        func := Value.cast(val);
+        func := Value.cast(val, null);
+        if (func is null)
+            # Failed to cast, create a value wrapper object for it.
+            func = createValueWrapper(context, val);
         return func.invoke(context, args);
     }
 
@@ -253,6 +287,13 @@ class Obj : Builtin {
     }
 }
 
+Value createValueWrapper(EvalContext context, Object obj) {
+    if (converter := context.getConverter(obj.class))
+        return converter(context, obj);
+    else
+        return Obj();
+}
+
 ## A word of syntax.  Quoted strings, blocks, and barewords are all terms.
 @abstract class Term {
     @abstract Object evaluate(EvalContext context);
@@ -277,8 +318,16 @@ class Command : Value {
         
         # Convert it to a string and do a lookup.
         String cmdstr;
-        if ( !(cmdstr = String.cast(cmdobj, null)) )
-            cmdstr = FStr() `$cmdobj`;
+        if ( !(cmdstr = String.cast(cmdobj, null)) ) {
+            # The command isn't a string - see if there's a converter for it.
+            if (converter := context.getConverter(cmdobj.class))
+                return converter(context, cmdobj);
+            else
+                throw Exception(FStr() I`Object $cmdobj is not a string and \
+                                         can not be converted to a value.`
+                                );
+                                
+        }
         cmdVal := context.lookUp(cmdstr);
         if (!cmdVal)
             throw Exception(FStr() `Invalid command: $cmdstr\n`);
