@@ -1,0 +1,23 @@
+
+import crack.io cout, cerr;
+import crack.lang Exception;
+import crash createRootContext, eval, parseString;
+import stdlib stdlib;
+
+@import crack.ann assert;
+
+Object ev(String code) {
+    ctx := createRootContext();
+    ctx.define('stdlib', stdlib());
+    return eval(code, ctx);
+}
+
+result := ev(I"
+    import [stdlib] open
+    var dst [open /tmp/testfile.dat w]
+    dst write 'test string\n'
+    var src [open /tmp/testfile.dat r]
+    var data [src read 1024]
+    format $data
+    ");
+@assert(result == 'test string\n');

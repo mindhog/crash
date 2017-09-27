@@ -1,7 +1,7 @@
 
 import crack.io cout, cerr;
 import crack.lang Exception;
-import crash eval, parseString;
+import crash eval, parseString, CrashError;
 
 @import crack.ann assert;
 
@@ -96,6 +96,41 @@ try {
 
 # Import.
 @assert(eval("import [object { var x 1; var y 2}] x y; format $x $y") == '12');
+
+# Error locations.
+try {
+    eval("\n\nfoo");
+    @assert(false);
+} catch (CrashError ex) {
+    @assert(ex.stack && ex.stack[0].lineNum == 3);
+}
+
+# Verify that a variable at the end of a string has the correct line number
+# associated with it.
+try {
+    eval("print $bogus
+    ");
+} catch (CrashError ex) {
+    @assert(ex.stack && ex.stack[0].lineNum == 1);
+}
+
+# Verify that line numbers work for nested blocks.
+try {
+    eval("
+        if {give 1} {
+            print $bogus
+        }
+    ");
+} catch (CrashError ex) {
+    @assert(ex.stack.count() == 4 && ex.stack[0].lineNum == 3);
+}
+
+# Verify that we can evalfile.  This has to be run in the current directory.
+@assert(eval("
+    var tm [evalfile testmod.crash]
+    tm echo 'test data'
+") == 'test data');
+
 
 cout `ok\n`;
 

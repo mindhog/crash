@@ -1,5 +1,27 @@
 #!/usr/local/bin/crack
 
+import crack.fs makePath;
+import crack.io cerr;
+import crack.lang Exception;
+import crack.sys argv;
+import crash createRootContext, eval, CrashError;
 import repl repl;
+import stdlib stdlib;
 
-repl();
+ctx := createRootContext();
+ctx.define('stdlib', stdlib());
+repl(ctx);
+
+if (argv.count() < 2)
+    repl(ctx);
+else {
+    try {
+        eval(makePath(argv[1]).readAll(), ctx);
+    } catch (CrashError ex) {
+        for (int i = ex.stack.count() - 1; i >= 0; --i)
+            cerr `$(ex.stack[i]):\n`;
+        cerr `$(ex.text)\n`;
+    } catch (Exception ex) {
+        cerr `Got an exception:\n$ex`;
+    }
+}
