@@ -4,10 +4,10 @@ import crack.cont.array Array;
 import crack.fs makePath;
 import crack.io FStr, Reader, Seekable, Writer;
 import crack.lang Exception;
-import crash createRootContext, eval, Builtin, EvalContext, Obj;
-import types IntObj;
+import .crash createRootContext, eval, Builtin, EvalContext, Obj;
+import .types IntObj;
 
-@import ann function;
+@import .ann function;
 
 @function(Reader) String read(int bytes) {
     return self.read(bytes);

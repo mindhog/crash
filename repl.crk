@@ -2,8 +2,9 @@
 import crack.ext._readline add_history, readline, using_history;
 import crack.io cerr;
 import crack.lang Exception;
-import crash createRootContext, eval, EvalContext;
 import crack.runtime strlen;
+
+import .crash createRootContext, eval, EvalContext;
 
 # Make sure history is initialized.
 bool _initialized;

@@ -9,7 +9,7 @@ import crack.lang AppendBuffer, Exception, SubString;
 import crack.process Process;
 import crack.strutil StringArray;
     
-import types IntObj;
+import .types IntObj;
 
 class EvalContext;
 
