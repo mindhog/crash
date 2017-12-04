@@ -18,6 +18,9 @@ result := ev(I"
     dst write 'test string\n'
     var src [open /tmp/testfile.dat r]
     var data [src read 1024]
-    format $data
+    set src [open /tmp/testfile.dat r]
+    format $data [src readAll]
     ");
-@assert(result == 'test string\n');
+@assert(result == 'test string\ntest string\n');
+cerr `ok\n`;
+
