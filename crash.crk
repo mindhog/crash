@@ -332,6 +332,10 @@ class Obj : Builtin {
     @final void define(String name, Value val) {
         vars.define(name, val);
     }
+    
+    void formatTo(Formatter out) {
+        out `Obj($vars)`;
+    }
 }
 
 Value createValueWrapper(EvalContext context, Object obj) {
@@ -403,7 +407,7 @@ class Command : Value {
             ex.oper bind();
             throw ex;
         } catch (Exception ex) {
-            throw CrashError(getSrcLoc(), ex.text);
+            throw CrashError(getSrcLoc(), FStr() `evaluating $this: $(ex.text)`);
         }
     }
 
@@ -1184,3 +1188,4 @@ Object eval(String expr, EvalContext context) {
 }
 
 Object eval(String expr) { return eval(expr, null); }
+
