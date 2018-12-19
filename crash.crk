@@ -632,6 +632,9 @@ Block parseString(String val);
 ## that the argument can be casted to a string.
 Block parseBlockArg(Array[Object] args, int index) {
     argVal := args[index];
+    if (b := Block.cast(argVal, null))
+        return b;
+    
     if (s := StringLiteral.cast(argVal, null))
         return parseString(s, s.srcLoc.lineNum);
 

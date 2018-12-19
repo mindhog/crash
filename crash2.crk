@@ -1,0 +1,83 @@
+
+import crack.io cin, readAll, FStr;
+import crack.lang Exception;
+
+import .ast List, FuncCall, Node, StaticList,  StringLiteral;
+import .crash eval, Block, Command, EvalContext, InterpExpr, LiteralStringTerm,
+    SimpleValue, SrcLoc, Term, VarRef, V1StringLiteral = StringLiteral, Value;
+import .parser parseString;
+
+@import crack.ann impl, interface;
+
+@interface ExprWrapper {
+    @abstract Value asValue();
+    @abstract Term asTerm();
+    @abstract Object evaluate();
+}
+
+class BlockExprWrapper @impl ExprWrapper  {
+    Block block;
+    oper init(Block block) : block = block {}
+    Value asValue() { return SimpleValue(block) }
+    Term asTerm() { return InterpExpr(block) }
+    Object evaluate() { return eval(block) }
+}
+
+class CommandExprWrapper @impl ExprWrapper {
+    Command command;
+    oper init(Command command) : command = command {}
+    Value asValue() { return command }
+    Term asTerm() {
+        block := Block();
+        block.add(command);
+        return InterpExpr(block);
+    }
+    Object evaluate() {
+        block := Block();
+        block.add(command);
+        return eval(block);
+    }
+}
+
+class LiteralObjectTerm : Term {
+    Object val;
+    oper init(Object val) : val = val {}
+    Object evaluate(EvalContext context) { return val }
+    SrcLoc getSrcLoc() { return null }
+}
+
+class LiteralObjectWrapper @impl ExprWrapper {
+    Object val;
+    oper init(Object val) : val = val {}
+    Value asValue() { return SimpleValue(val) }
+    Term asTerm() { return LiteralObjectTerm(val) }
+    Object evaluate() { return val }
+}
+
+## Compile an AST node to a value.
+ExprWrapper convert(Node node) {
+    if (list := StaticList.cast(node, null)) {
+        block := Block();
+        for (command :in list.getElements())
+            block.add(convert(command).asValue());
+        return LiteralObjectWrapper(block);
+    } else if (list := List.cast(node, null)) {
+        block := Block();
+        for (command :in list.getElements())
+            block.add(convert(command).asValue());
+        return BlockExprWrapper(block);
+    } else if (strlit := StringLiteral.cast(node, null)) {
+        return LiteralObjectWrapper(strlit.contents);
+    } else if (fc := FuncCall.cast(node, null)) {
+        cmdTerm := VarRef(V1StringLiteral(fc.func.text, /*srcloc*/ null));
+        cmd := Command(cmdTerm);
+        for (arg :in fc.args)
+            cmd.args.append(convert(arg).asTerm());
+        return CommandExprWrapper(cmd);
+    } else {
+        throw Exception(FStr() `Unknown AST node type: $(node.class.name)`);
+    }
+}
+
+convert(parseString(readAll(cin))).evaluate();
+

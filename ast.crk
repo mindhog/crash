@@ -1,0 +1,83 @@
+## Crash 2 Abstract syntax tree.
+
+import crack.cont.array Array;
+import crack.io Formatter;
+
+class Node {
+}
+
+## Identifier.
+class Ident : Node {
+    String text;
+    
+    oper init(String text) : text = text {}
+    
+    void formatTo(Formatter out) {
+        out `$text`;
+    }
+}
+
+## An expression.
+## expression ::= literal | func_call | dynamic_list
+class Expr : Node {}
+
+class FuncCall : Expr {
+    Ident func;
+    Array[Expr] args;
+    
+    oper init(Ident func, Array[Expr] args) :
+        func = func,
+        args = args {
+    }
+    
+    void formatTo(Formatter out) {
+        out `$func`;
+        for (arg :in args)
+            out ` $arg`;
+    }
+}
+
+class List : Expr {
+    Array[Expr] _contents;
+    
+    oper init(Array[Expr] contents) : _contents = contents {}
+    
+    void formatTo(Formatter out) {
+        for (expr :in _contents)
+            out `$expr;`;
+    }
+    
+    Array[Expr] getElements() { return _contents }
+}
+
+class StringLiteral : Expr {
+    String contents;
+    oper init(String contents) : contents = contents {}
+    
+    void formatTo(Formatter out) {
+        out `'$contents'`;
+    }
+}
+
+## A list that is to be evaluated during the course of execution.
+class DynamicList : List {
+    oper init(Array[Expr] contents) : List(contents) {}
+    
+    void formatTo(Formatter out) {
+        out `(`;
+        List.formatTo(out);
+        out `)`;
+    }
+}
+
+## A list that is 
+class StaticList : List {
+    oper init(Array[Expr] contents) : List(contents) {}
+    
+    void formatTo(Formatter out) {
+        out `{`;
+        List.formatTo(out);
+        out `}`;
+    }
+}
+
