@@ -1,16 +1,75 @@
 ## Crash 2 Abstract syntax tree.
 
 import crack.cont.array Array;
+import crack.cont.hashmap HashMap;
 import crack.io Formatter;
+import crack.lang cmp;
+
+class SrcLoc;
+SrcLoc _get(String filename, int row, int col);
+
+## Records a source location.  These are immutable by design.
+class SrcLoc {
+    String __filename;
+    int __row, __col;
+    oper init(String filename, int row, int col) :
+        __filename = filename,
+        __row = row,
+        __col = col {
+    }
+    
+    int cmp(Object other) {
+        if (o := SrcLoc.cast(other, null)) {
+            rc := cmp(__filename, o.__filename);
+            if (rc) return rc;
+            rc = cmp(__row, o.__row);
+            if (rc) return rc;
+            rc = cmp(__col, o.__col);
+            return rc;
+        } else {
+            return Object.cmp(other);
+        }
+    }
+    
+    uint makeHashVal() {
+        return __filename.makeHashVal() ^ __row ^ __col;
+    }
+    
+    int getRow() { return __row }
+    int getCol() { return __col }
+    
+    void formatTo(Formatter out) {
+        out `$__filename:$__row:$__col`;
+    }
+    
+    ## Creates a new source location object
+    @static SrcLoc get(String filename, int row, int col) {
+        return _get(filename, row, col);
+    }
+}
+
+HashMap[SrcLoc, SrcLoc] _srcLocs = {};
+SrcLoc _get(String filename, int row, int col) {
+    tmp := SrcLoc(filename, row, col);
+    result := _srcLocs.get(tmp);
+    if (!result) {
+        _srcLocs.set(tmp, tmp);
+        return tmp;
+    } else {
+        return result;
+    }
+}
 
 class Node {
+    SrcLoc loc;
+    oper init(SrcLoc loc) : loc = loc {}
 }
 
 ## Identifier.
 class Ident : Node {
     String text;
     
-    oper init(String text) : text = text {}
+    oper init(SrcLoc loc, String text) : Node(loc), text = text {}
     
     void formatTo(Formatter out) {
         out `$text`;
@@ -19,13 +78,16 @@ class Ident : Node {
 
 ## An expression.
 ## expression ::= literal | func_call | dynamic_list
-class Expr : Node {}
+class Expr : Node {
+    oper init(SrcLoc loc) : Node(loc) {}
+}
 
 class FuncCall : Expr {
     Ident func;
     Array[Expr] args;
     
-    oper init(Ident func, Array[Expr] args) :
+    oper init(SrcLoc loc, Ident func, Array[Expr] args) :
+        Expr(loc),
         func = func,
         args = args {
     }
@@ -40,7 +102,10 @@ class FuncCall : Expr {
 class List : Expr {
     Array[Expr] _contents;
     
-    oper init(Array[Expr] contents) : _contents = contents {}
+    oper init(SrcLoc loc, Array[Expr] contents) : 
+        Expr(loc),
+        _contents = contents {
+    }
     
     void formatTo(Formatter out) {
         for (expr :in _contents)
@@ -52,7 +117,7 @@ class List : Expr {
 
 class StringLiteral : Expr {
     String contents;
-    oper init(String contents) : contents = contents {}
+    oper init(SrcLoc loc, String contents) : Expr(loc), contents = contents {}
     
     void formatTo(Formatter out) {
         out `'$contents'`;
@@ -61,7 +126,7 @@ class StringLiteral : Expr {
 
 ## A list that is to be evaluated during the course of execution.
 class DynamicList : List {
-    oper init(Array[Expr] contents) : List(contents) {}
+    oper init(SrcLoc loc, Array[Expr] contents) : List(loc, contents) {}
     
     void formatTo(Formatter out) {
         out `(`;
@@ -72,7 +137,7 @@ class DynamicList : List {
 
 ## A list that is 
 class StaticList : List {
-    oper init(Array[Expr] contents) : List(contents) {}
+    oper init(SrcLoc loc, Array[Expr] contents) : List(loc, contents) {}
     
     void formatTo(Formatter out) {
         out `{`;

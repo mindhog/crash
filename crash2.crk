@@ -1,10 +1,11 @@
 
-import crack.io cin, readAll, FStr;
+import crack.io cin, cerr, readAll, FStr;
 import crack.lang Exception;
 
-import .ast List, FuncCall, Node, StaticList,  StringLiteral;
-import .crash eval, Block, Command, EvalContext, InterpExpr, LiteralStringTerm,
-    SimpleValue, SrcLoc, Term, VarRef, V1StringLiteral = StringLiteral, Value;
+import .ast List, FuncCall, Node, SrcLoc, StaticList,  StringLiteral;
+import .crash eval, Block, Command, CrashError, EvalContext, InterpExpr,
+    LiteralStringTerm, SimpleValue, V1SrcLoc = SrcLoc, Term, VarRef,
+    V1StringLiteral = StringLiteral, Value;
 import .parser parseString;
 
 @import crack.ann impl, interface;
@@ -41,16 +42,18 @@ class CommandExprWrapper @impl ExprWrapper {
 
 class LiteralObjectTerm : Term {
     Object val;
-    oper init(Object val) : val = val {}
+    V1SrcLoc loc;
+    oper init(Object val, V1SrcLoc loc) : val = val, loc = loc {}
     Object evaluate(EvalContext context) { return val }
-    SrcLoc getSrcLoc() { return null }
+    V1SrcLoc getSrcLoc() { return loc }
 }
 
 class LiteralObjectWrapper @impl ExprWrapper {
     Object val;
-    oper init(Object val) : val = val {}
+    V1SrcLoc loc;
+    oper init(Object val, V1SrcLoc loc) : val = val, loc = loc {}
     Value asValue() { return SimpleValue(val) }
-    Term asTerm() { return LiteralObjectTerm(val) }
+    Term asTerm() { return LiteralObjectTerm(val, loc) }
     Object evaluate() { return val }
 }
 
@@ -60,16 +63,21 @@ ExprWrapper convert(Node node) {
         block := Block();
         for (command :in list.getElements())
             block.add(convert(command).asValue());
-        return LiteralObjectWrapper(block);
+        return LiteralObjectWrapper(block, V1SrcLoc(list.loc.getRow()));
     } else if (list := List.cast(node, null)) {
         block := Block();
         for (command :in list.getElements())
             block.add(convert(command).asValue());
         return BlockExprWrapper(block);
     } else if (strlit := StringLiteral.cast(node, null)) {
-        return LiteralObjectWrapper(strlit.contents);
+        return LiteralObjectWrapper(strlit.contents,
+                                    V1SrcLoc(strlit.loc.getRow())
+                                    );
     } else if (fc := FuncCall.cast(node, null)) {
-        cmdTerm := VarRef(V1StringLiteral(fc.func.text, /*srcloc*/ null));
+        cmdTerm := VarRef(V1StringLiteral(fc.func.text,
+                                          V1SrcLoc(fc.loc.getRow())
+                                          )
+                          );
         cmd := Command(cmdTerm);
         for (arg :in fc.args)
             cmd.args.append(convert(arg).asTerm());
@@ -79,5 +87,10 @@ ExprWrapper convert(Node node) {
     }
 }
 
-convert(parseString(readAll(cin))).evaluate();
+try {
+    convert(parseString(readAll(cin))).evaluate();
+} catch (CrashError ex) {
+    cerr `Got an exception: $ex\n`;
+}
+
 

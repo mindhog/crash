@@ -1,10 +1,10 @@
 
-import crack.ascii isDigit;
+import crack.ascii isDigit, isSpace;
 import crack.cont.array Array;
 import crack.io cerr, Formatter, FStr;
 import crack.lang AppendBuffer, Exception;
 
-import .ast DynamicList, Expr, FuncCall, Ident, List, Node, StaticList, 
+import .ast DynamicList, Expr, FuncCall, Ident, List, Node, SrcLoc, StaticList, 
     StringLiteral;
 
 const int
@@ -21,22 +21,25 @@ const int
 class Token {
     int type;
     String text;
-    int lineNum;
+    int lineNum, column;
 
-    oper init(int type, String text, int lineNum) :
+    oper init(int type, String text, int lineNum, int column) :
         type = type,
         text = text,
-        lineNum = lineNum {
+        lineNum = lineNum,
+        column = column {
     }
 
     void formatTo(Formatter out) {
         if (text)
-            out `$text`;
+            out `$(text.getRepr())`;
         else if (type == TOK_EOF)
             out `<EOF>`;
         else
             out `:$type:`;
     }
+    
+    SrcLoc getSrcLoc() { return SrcLoc.get('filename', lineNum, column) }
     
     bool isEOF() { return type == TOK_EOF }
     bool isIdent() { return type == TOK_IDENT }
@@ -58,11 +61,42 @@ class ParseError : Exception {
 class Toker {
     String contents;
     uint pos;
-    uint lineNum;
+    uint lineNum, column;
+    
+    ## Stores the last row and column position.  This should be the beginning 
+    ## of the current token.  It is updated by __makeTok() and __updateLoc().
+    uint lastRow, lastCol;
 
     oper init(String contents, int lineNum) :
         contents = contents,
-        lineNum = lineNum {
+        lineNum = lineNum,
+        lastRow = lineNum {
+    }
+
+    @final void backup() {
+        --pos;
+        if (contents[pos] == b'\n') {
+            # backing up over a newline.  Backup the line number and get the 
+            # new column. (Note that the pos == 0 case that we guard against 
+            # should never happen: we only ever backup at the end of a token)
+            --lineNum;
+            cur := pos;
+            while (cur && contents[cur] != b'\n') --cur;
+            column = pos - cur;
+        } else {
+            --column;
+        }
+    }
+
+    @final void __updateLoc() {
+        lastRow = lineNum;
+        lastCol = column;
+    }
+    
+    @final Token __makeTok(int type, String text) {
+        result := Token(type, text, lastRow, lastCol);
+        __updateLoc();
+        return result;
     }
 
     Token getToken() {
@@ -88,34 +122,34 @@ class Toker {
         # Number of levels of curly bracket nesting.
         int count;
         
-        # Line number at the start of the token.
-        int startLineNum;
-
         while (true) {
             byte ch;
             if (pos == contents.size)
                 ch = 0;
             else {
                 ch = contents[pos++];
-                if (ch == b'\n') lineNum++;
+                if (ch == b'\n') {
+                    lineNum++;
+                    column = 0;
+                } else {
+                    column += 1;
+                }
             }
             if (state == BASE) {
                 if (!ch)
-                    return Token(TOK_EOF, null, lineNum);
+                    return __makeTok(TOK_EOF, null);
                 if (ch == b'\n' || ch == b';')
-                    return Token(TOK_SEMI, String(1, ch), lineNum);
-
+                    return __makeTok(TOK_SEMI, String(1, ch));
                 if (ch == b'{') {
-                    return Token(TOK_LCURLY, String(1, ch), lineNum);
+                    return __makeTok(TOK_LCURLY, String(1, ch));
                 } else if (ch == b'}') {
-                    return Token(TOK_RCURLY, String(1, ch), lineNum);
+                    return __makeTok(TOK_RCURLY, String(1, ch));
                 } else if (ch == b'(') {
-                    return Token(TOK_LPAREN, String(1, ch), lineNum);
+                    return __makeTok(TOK_LPAREN, String(1, ch));
                 } else if (ch == b')') {
-                    return Token(TOK_RPAREN, String(1, ch), lineNum);
+                    return __makeTok(TOK_RPAREN, String(1, ch));
                 } else if (ch == b"'") {
                     state = LIT_STR;
-                    startLineNum = lineNum;
                 } else if (ch == b'#') {
                     state = COMMENT;
                 } else if (ch >= b'A' && ch <= b'Z' ||
@@ -123,6 +157,13 @@ class Toker {
                            ch == b'_') {
                     result.append(ch);
                     state = IDENT;
+                } else if (isSpace(ch)) {
+                    __updateLoc();
+                } else {
+                    throw ParseError(
+                        FStr() I`$(SrcLoc.get('filename', lastRow, lastCol)) \
+                                 Unrecognized character: $ch`
+                    );
                 }
             } else if (state == IDENT) {
                 if (ch >= b'A' && ch <= b'Z' ||
@@ -133,14 +174,14 @@ class Toker {
                     result.append(ch);
                 } else {
                     # Back up so we can catch it if it's a newline.
-                    if (ch) --pos;
-                    return Token(TOK_IDENT, String(result, true), lineNum);
+                    if (ch) backup();
+                    return __makeTok(TOK_IDENT, String(result, true));
                 }
             } else if (state == LIT_STR) {
                 if (ch == b'\\') 
                     state = LIT_STR_ESC;
                 else if (ch == b"'")
-                    return Token(TOK_STRLIT, String(result, true), startLineNum);
+                    return __makeTok(TOK_STRLIT, String(result, true));
                 else if (!ch)
                     throw ParseError('Premature end of file in string literal.');
                 else
@@ -187,7 +228,7 @@ class Toker {
                         state = LIT_STR_ESC;
                         continue;
                     } else if (ch == b"'") {
-                        return Token(TOK_STRLIT, String(result, true), lineNum);
+                        return __makeTok(TOK_STRLIT, String(result, true));
                     } else {
                         result.append(ch);
                         state = LIT_STR;
@@ -213,7 +254,7 @@ class Toker {
                         state = LIT_STR_ESC;
                         continue;
                     } else if (ch == b"'") {
-                        return Token(TOK_STRLIT, String(result, true), lineNum);
+                        return __makeTok(TOK_STRLIT, String(result, true));
                     } else {
                         result.append(ch);
                         state = LIT_STR;
@@ -230,10 +271,12 @@ class Toker {
                     continue;
                 }
             } else if (state == COMMENT) {
-                if (ch == b'\n')
+                if (ch == b'\n') {
                     state = BASE;
-                else if (!ch)
-                    return Token(TOK_EOF, null, lineNum);
+                    __updateLoc();
+                } else if (!ch) {
+                    return __makeTok(TOK_EOF, null);
+                }
             }
         }
 
@@ -264,8 +307,8 @@ class Parser {
     void putBack(Token tok) { __putback.append(tok) }
 
     FuncCall parseFuncCall(Token ident);
-    StaticList parseStaticList();
-    DynamicList parseDynamicList();
+    StaticList parseStaticList(SrcLoc loc);
+    DynamicList parseDynamicList(SrcLoc loc);
 
     Expr parseExpr(bool longFuncCalls) {
         tok := getToken();
@@ -274,21 +317,22 @@ class Parser {
                 putBack(tok);
                 return parseFuncCall(tok);
             } else {
-                return FuncCall(Ident(tok.text), Array[Expr]());
+                loc := tok.getSrcLoc();
+                return FuncCall(loc, Ident(loc, tok.text), Array[Expr]());
             }
         } else if (tok.isStrLit()) {
-            return StringLiteral(tok.text);
+            return StringLiteral(tok.getSrcLoc(), tok.text);
         } else if (tok.isLParen()) {
-            return parseDynamicList();
+            return parseDynamicList(tok.getSrcLoc());
         } else if (tok.isLCurly()) {
-            return parseStaticList();
+            return parseStaticList(tok.getSrcLoc());
         } else {
             throw ParseError(FStr() `Unexpected token: $tok`);
         }
     }
 
     FuncCall parseFuncCall(Token ident) {
-        name := Ident(ident.text);
+        name := Ident(ident.getSrcLoc(), ident.text);
         tok := getToken();
         args := Array[Expr]();
         while (!(tok = getToken()).isTerminator() && !tok.isSemi()) {
@@ -297,43 +341,55 @@ class Parser {
         }
         if (!tok.isSemi())
             putBack(tok);
-        return FuncCall(name, args);
+        return FuncCall(ident.getSrcLoc(), name, args);
+    }
+
+    ## Returns null if we just parse a semicolon.
+    Expr parseStatement() {
+        tok := getToken();
+        if (tok.isSemi())
+            return null;
+        putBack(tok);
+        return parseExpr(true);
     }
 
     void parseList(Array[Expr] list) {
         Token tok;
         while (!(tok = getToken()).isTerminator()) {
-            # Consume all semicolons.
-            while (tok.isSemi())
-                tok = getToken();
             putBack(tok);
-            list.append(parseExpr(true));
+            expr := parseStatement();
+            if (expr)
+                list.append(expr);
         }
         putBack(tok);
     }
     
-    StaticList parseStaticList() {
+    StaticList parseStaticList(SrcLoc loc) {
         list := Array[Expr]();
         parseList(list);
         if (!(tok := getToken()).isRCurly())
             throw ParseError(FStr() `Expected '}', got $tok`);
-        return StaticList(list);
+        return StaticList(loc, list);
     }
 
-    DynamicList parseDynamicList() {
+    DynamicList parseDynamicList(SrcLoc loc) {
         list := Array[Expr]();
         parseList(list);
         if (!(tok := getToken()).isRParen())
             throw ParseError(FStr() `Expected ')', got $tok`);
-        return DynamicList(list);
+        return DynamicList(loc, list);
     }
     
     List parse() {
+        # Peek at the first token to store its location.
+        firstTok := getToken();
+        putBack(firstTok);
+
         list := Array[Expr]();
         parseList(list);
         if (!(tok := getToken()).isEOF())
             throw ParseError(FStr() `Expected EOF, got $tok`);
-        return List(list);
+        return List(firstTok.getSrcLoc(), list);
     }
 }
 
