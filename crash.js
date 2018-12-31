@@ -333,15 +333,15 @@ class Toker {
 
     getToken() {
 
-        // EOF.
-        if (!this.contents)
-            return this.makeToken([''], TOK_EOF);
-
         // Clear all whitespace and comments from the beginning of the line.
         let m = null;
         while (m = this.match(/^(\s(#[^\n]*)?)+/)) {
             this.consume(m[0].length);
         }
+
+        // EOF.
+        if (!this.contents)
+            return this.makeToken([''], TOK_EOF);
 
         // Identifier.
         m = this.match(/^[a-zA-Z_][a-zA-Z_0-9]*/);
@@ -744,12 +744,17 @@ function print(ctx) {
         console.log(ctx.args[i]);
 }
 
-function resolve(name) {
-    if (name == 'print')
-        return print
-    else
-        return eval(name);
+class CompileContext {
+    constructor() {
+        this.defs = [];
+    }
+
+    resolve(name) {
+        return this.defs[name]
+    }
 }
+
+exports.CompileContext = CompileContext;
 
 // This code assumes a very simple virtual machine build on javascript
 // functions.
@@ -783,23 +788,23 @@ function evalArgs(ctx, list) {
 }
 
 // Convert a list of Expr to a list of functions.
-function convertList(list) {
+function convertList(cctx, list) {
     let result = [];
     for (let i = 0; i < list.length; ++i)
-        result.push(convert(list[i]));
+        result.push(convert(cctx, list[i]));
     return result;
 }
 
-function convert(node) {
+function convert(cctx, node) {
     if (node instanceof StringLiteral) {
         return (ctx) => node.contents;
     } else if (node instanceof FloatLiteral || node instanceof IntegerLiteral) {
         return (ctx) => node.val;
     } else if (node instanceof FuncCall) {
-        let f = resolve(node.func.text);
+        let f = cctx.resolve(node.func.text);
 
         // Convert the arguments.
-        let argExprs = convertList(node.args);
+        let argExprs = convertList(cctx, node.args);
 
         return (ctx) => {
             // create a new context for the function.
@@ -807,19 +812,19 @@ function convert(node) {
             return f.call(null, ctx);
         };
     } else if (node instanceof StaticList) {
-        let funcList = convertList(node.contents);
+        let funcList = convertList(cctx, node.contents);
 
         // We want this to be a function that returns a function that
         // evaluates the list.
         return (ctx) => (ctx) => evalList(ctx, funcList);
     } else if (node instanceof List) {
-        let funcList = convertList(node.contents);
+        let funcList = convertList(cctx, node.contents);
         return (ctx) => evalList(ctx, funcList);
     } else if (node instanceof IfStmt) {
-        let condFunc = convert(node.cond);
-        let onTrueFunc = convert(node.onTrue)(null);
+        let condFunc = convert(cctx, node.cond);
+        let onTrueFunc = convert(cctx, node.onTrue)(null);
         if (node.onFalse) {
-            let onFalseFunc = convert(node.onFalse)(null);
+            let onFalseFunc = convert(cctx, node.onFalse)(null);
             return (ctx) => condFunc(ctx) ? onTrueFunc(ctx) : onFalseFunc(ctx);
         } else {
             return (ctx) => condFunc(ctx) ? onTrueFunc(ctx) : null;

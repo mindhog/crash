@@ -105,7 +105,7 @@ assert(toker.col == 3);
 toker = new crash.Toker('   first word\n' +
                         'second third word\n' +
                         '   # Comment\n' +
-                        'end',
+                        'end\n',
                         'file',
                         1
                         );
@@ -122,7 +122,7 @@ checkToken(toker.getToken(), 2, 0, crash.TOK_IDENT, 'second');
 checkToken(toker.getToken(), 2, 7, crash.TOK_IDENT, 'third');
 checkToken(toker.getToken(), 2, 13, crash.TOK_IDENT, 'word');
 checkToken(toker.getToken(), 4, 0, crash.TOK_IDENT, 'end');
-checkToken(toker.getToken(), 4, 3, crash.TOK_EOF, '');
+checkToken(toker.getToken(), 5, 0, crash.TOK_EOF, '');
 
 toker = new crash.Toker('foo;', 'file', 1);
 checkToken(toker.getToken(), 1, 0, crash.TOK_IDENT, 'foo');
@@ -157,7 +157,8 @@ assert(ast.toString() == "print 'this is some text' {set undefined 100;};");
 
 // Assert that 'code' (string) evaluates to 'val'.
 function assertEvalsTo(code, val) {
-    let func = crash.convert(crash.parseString(code));
+    let cctx = new crash.CompileContext();
+    let func = crash.convert(cctx, crash.parseString(code));
     let actual = func(new crash.EvalContext(null, []));
     if (actual != val)
         throw Error('assertion failed');
