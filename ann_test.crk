@@ -51,7 +51,7 @@ root.define('obj', o);
 @assert(eval('$obj meth', root) == IntObj(100));
 
 @assert(eval('getInt [getInt 100]', root) == IntObj(100));
-@assert(eval('getFloat [getFloat 1.1]', root) == FloatObj(1.1));
+@assert(eval('getFloat [getFloat 1.5]', root) == FloatObj(1.5));
 @assert(eval('getBool [getBool true]', root) == BoolObj(true));
 
 # Test automatic conversion.

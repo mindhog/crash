@@ -1,14 +1,17 @@
 
+import crack.cont.array Array;
 import crack.io cin, cerr, readAll, FStr;
 import crack.lang Exception;
 
-import .ast List, FuncCall, Node, SrcLoc, StaticList,  StringLiteral;
+import .ast List, FloatLiteral, FuncCall, IfStmt, IntegerLiteral, Node, SrcLoc,
+    StaticList, StringLiteral;
 import .crash eval, Block, Command, CrashError, EvalContext, InterpExpr,
     LiteralStringTerm, SimpleValue, V1SrcLoc = SrcLoc, Term, VarRef,
     V1StringLiteral = StringLiteral, Value;
 import .parser parseString;
+import .types IntObj, FloatObj;
 
-@import crack.ann impl, interface;
+@import crack.ann impl, interface, SCOPE_NAME;
 
 @interface ExprWrapper {
     @abstract Value asValue();
@@ -24,18 +27,18 @@ class BlockExprWrapper @impl ExprWrapper  {
     Object evaluate() { return eval(block) }
 }
 
-class CommandExprWrapper @impl ExprWrapper {
-    Command command;
-    oper init(Command command) : command = command {}
-    Value asValue() { return command }
+class ValueExprWrapper @impl ExprWrapper {
+    Value value;
+    oper init(Value value) : value = value {}
+    Value asValue() { return value }
     Term asTerm() {
         block := Block();
-        block.add(command);
+        block.add(value);
         return InterpExpr(block);
     }
     Object evaluate() {
         block := Block();
-        block.add(command);
+        block.add(value);
         return eval(block);
     }
 }
@@ -57,15 +60,69 @@ class LiteralObjectWrapper @impl ExprWrapper {
     Object evaluate() { return val }
 }
 
-## Compile an AST node to a value.
-ExprWrapper convert(Node node) {
-    if (list := StaticList.cast(node, null)) {
+class IfStmtValue : Value {
+    V1SrcLoc loc;
+    Value cond;
+    Term onTrue, onFalse;
+
+    oper init(V1SrcLoc loc, Value cond, Term onTrue, Term onFalse) :
+        loc = loc,
+        cond = cond,
+        onTrue = onTrue,
+        onFalse = onFalse {
+    }
+
+    Object evaluate(EvalContext context) {
+        context.pushFuncFrame();
+        condVal := cond.evaluate(context);
+        if (context.yield)
+            return null;
+        if (condVal) {
+            result := onTrue.evaluate(context);
+            if (!context.yield)
+                context.popFuncFrame();
+            return result;
+        }
+
+        # Is there an else?
+        if (onFalse) {
+            result := onFalse.evaluate(context);
+            if (!context.yield)
+                context.popFuncFrame();
+            return result;
+        }
+
+        context.popFuncFrame();
+        return null;
+    }
+
+    V1SrcLoc getSrcLoc() { return loc }
+    void set(Object value) {
+        throw Exception('"set" method not defined for if statement.');
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        throw Exception('"invoke" method not defined for if statement.');
+    }
+
+}
+
+ExprWrapper convert(Node node);
+
+Block _convertBlock(List list ) {
         block := Block();
         for (command :in list.getElements())
             block.add(convert(command).asValue());
+    return block;
+}
+
+## Compile an AST node to a value.
+ExprWrapper convert(Node node) {
+    if (list := StaticList.cast(node, null)) {
+        block := _convertBlock(list);
         return LiteralObjectWrapper(block, V1SrcLoc(list.loc.getRow()));
     } else if (list := List.cast(node, null)) {
-        block := Block();
+        block := _convertBlock(list);
         for (command :in list.getElements())
             block.add(convert(command).asValue());
         return BlockExprWrapper(block);
@@ -73,6 +130,20 @@ ExprWrapper convert(Node node) {
         return LiteralObjectWrapper(strlit.contents,
                                     V1SrcLoc(strlit.loc.getRow())
                                     );
+    } else if (intlit := IntegerLiteral.cast(node, null)) {
+        return LiteralObjectWrapper(IntObj(intlit.val),
+                                    V1SrcLoc(intlit.loc.getRow())
+                                    );
+    } else if (floatlit := FloatLiteral.cast(node, null)) {
+        return LiteralObjectWrapper(FloatObj(floatlit.val),
+                                    V1SrcLoc(floatlit.loc.getRow())
+                                    );
+    } else if (stmt := IfStmt.cast(node, null)) {
+        cond := convert(stmt.cond).asValue();
+        onTrue := InterpExpr(_convertBlock(stmt.onTrue));
+        onFalse := stmt.onFalse ? InterpExpr(_convertBlock(stmt.onFalse)) : null;
+        cmd := IfStmtValue(V1SrcLoc(stmt.loc.getRow()), cond, onTrue, onFalse);
+        return ValueExprWrapper(cmd);
     } else if (fc := FuncCall.cast(node, null)) {
         cmdTerm := VarRef(V1StringLiteral(fc.func.text,
                                           V1SrcLoc(fc.loc.getRow())
@@ -81,16 +152,16 @@ ExprWrapper convert(Node node) {
         cmd := Command(cmdTerm);
         for (arg :in fc.args)
             cmd.args.append(convert(arg).asTerm());
-        return CommandExprWrapper(cmd);
+        return ValueExprWrapper(cmd);
     } else {
         throw Exception(FStr() `Unknown AST node type: $(node.class.name)`);
     }
 }
 
-try {
-    convert(parseString(readAll(cin))).evaluate();
-} catch (CrashError ex) {
-    cerr `Got an exception: $ex\n`;
+if (@SCOPE_NAME == '.main') {
+    try {
+        convert(parseString(readAll(cin))).evaluate();
+    } catch (CrashError ex) {
+        cerr `Got an exception: $ex\n`;
+    }
 }
-
-
