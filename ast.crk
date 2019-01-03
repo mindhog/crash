@@ -212,3 +212,32 @@ class ForStmt : Expr {
         block = block {
     }
 }
+
+class VarDef : Expr {
+
+    ## Name of the variable to assign.
+    Ident name;
+
+    ## Name of the type.  Nullable.
+    ## TODO: Types need their own AST.
+    Ident typeName;
+
+    ## Initializer expression for the variable.
+    ## Nullable.
+    Expr initializer;
+
+    oper init(SrcLoc loc, Ident name, Ident typeName, Expr initializer) :
+        Expr(loc),
+        name = name,
+        typeName = typeName,
+        initializer = initializer {
+    }
+
+    void formatTo(Formatter out) {
+        out `$name :`;
+        if (typeName)
+            out ` $typeName$(initializer ? ' ' : '')`;
+        if (initializer)
+            out `= $initializer`;
+    }
+}

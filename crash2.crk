@@ -1,10 +1,11 @@
 
 import crack.cont.array Array;
+import crack.cont.hashmap HashMap;
 import crack.io cin, cerr, readAll, FStr;
 import crack.lang Exception;
 
-import .ast List, FloatLiteral, FuncCall, IfStmt, IntegerLiteral, Node, SrcLoc,
-    StaticList, StringLiteral;
+import .ast Expr, List, FloatLiteral, FuncCall, IfStmt, IntegerLiteral, Node,
+    SrcLoc, StaticList, StringLiteral, VarDef;
 import .crash eval, Block, Command, CrashError, EvalContext, InterpExpr,
     LiteralStringTerm, SimpleValue, V1SrcLoc = SrcLoc, Term, VarRef,
     V1StringLiteral = StringLiteral, Value;
@@ -60,13 +61,31 @@ class LiteralObjectWrapper @impl ExprWrapper {
     Object evaluate() { return val }
 }
 
-class IfStmtValue : Value {
-    V1SrcLoc loc;
+@abstract class LimitedValue : Value {
+    V1SrcLoc __loc;
+
+    oper init(V1SrcLoc loc) : __loc = loc {}
+
+    V1SrcLoc getSrcLoc() { return __loc }
+    void set(Object value) {
+        throw Exception(
+            FStr() `"set" method not defined for $(this.class.name).`
+        );
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        throw Exception(
+            FStr() `"invoke" method not defined for $(this.class.name).`
+        );
+    }
+}
+
+class IfStmtValue : LimitedValue {
     Value cond;
     Term onTrue, onFalse;
 
     oper init(V1SrcLoc loc, Value cond, Term onTrue, Term onFalse) :
-        loc = loc,
+        LimitedValue(loc),
         cond = cond,
         onTrue = onTrue,
         onFalse = onFalse {
@@ -95,67 +114,189 @@ class IfStmtValue : Value {
         context.popFuncFrame();
         return null;
     }
-
-    V1SrcLoc getSrcLoc() { return loc }
-    void set(Object value) {
-        throw Exception('"set" method not defined for if statement.');
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        throw Exception('"invoke" method not defined for if statement.');
-    }
-
 }
 
-ExprWrapper convert(Node node);
+class VarDefValue : LimitedValue {
+    String name;
+    Value initializer;
 
-Block _convertBlock(List list ) {
-        block := Block();
-        for (command :in list.getElements())
-            block.add(convert(command).asValue());
-    return block;
+    oper init(V1SrcLoc loc, String name, Value initializer) :
+        LimitedValue(loc),
+        name = name,
+        initializer = initializer {
+    }
+
+    Object evaluate(EvalContext context) {
+        val := initializer ? initializer.evaluate(context) : null;
+        context.define(name, SimpleValue(val));
+        return val;
+    }
 }
 
-## Compile an AST node to a value.
+## Adapter for a variable reference (note that these are Terms in the V1 impl,
+## not values).
+class VarRefValue : LimitedValue {
+    String name;
+    oper init(V1SrcLoc loc, String name) : LimitedValue(loc), name = name {}
+    Object evaluate(EvalContext context) {
+        result := context.lookUp(name);
+        if (result is null)
+            throw Exception(
+                FStr() I`lookup of $name failed at runtime.  This shouldn't \
+                         happen, and is likely the result of a bug in the \
+                         compiler.`
+            );
+        return result.evaluate(context);
+    }
+}
+
+@abstract class Def {
+    String name;
+
+    oper init(String name) : name = name {}
+
+    ## Return a value representing the invocation of a definition.
+    @abstract Value makeValue(FuncCall funcCall);
+}
+
+class Variable : Def {
+    oper init(String name) : Def(name) {}
+
+    Value makeValue(FuncCall funcCall) {
+        if (funcCall.args)
+            throw Exception(
+                FStr() I`$(funcCall.loc): Variable definitions accept no \
+                         arguments.`
+            );
+
+        return VarRefValue(V1SrcLoc(funcCall.loc.getRow()), name);
+    }
+}
+
+class CompileContext {
+    class Frame : HashMap[String, Def] {
+        Frame parent;
+        oper init(Frame parent) : parent = parent {}
+
+        Def lookUp(String name) {
+            if (result := get(name))
+                return result;
+            else if (parent)
+                return parent.lookUp(name);
+            else
+                return null;
+        }
+    }
+
+    void popFrame();
+    void pushFrame();
+
+    class SubContext {
+        CompileContext __ctx;
+        oper init(CompileContext ctx) : __ctx = ctx {
+            __ctx.pushFrame();
+        }
+
+        oper del() {
+            __ctx.popFrame();
+        }
+    }
+
+    Frame topFrame;
+
+    oper init() : topFrame(null) {}
+
+    void popFrame() {
+        topFrame = topFrame.parent;
+    }
+
+    void pushFrame() {
+        topFrame = Frame(topFrame);
+    }
+
+    ## Makes a subcontext (a Frame) that exists for as long as the result
+    ## stays in scope.
+    SubContext makeSubContext() {
+        return SubContext(this);
+    }
+
+    ## Looks up the name in the lexical context, returns null if it is
+    ## undefined.
+    Def lookUp(String name) { return topFrame.lookUp(name) }
+
+    void define(Def def) { topFrame[def.name] = def }
+
+    ExprWrapper convert(Node node);
+
+    Block _convertBlock(List list ) {
+            block := Block();
+            for (command :in list.getElements())
+                block.add(convert(command).asValue());
+        return block;
+    }
+
+    ## Compile an AST node to a value.
+    ExprWrapper convert(Node node) {
+        if (list := StaticList.cast(node, null)) {
+            subctx := makeSubContext();
+            block := _convertBlock(list);
+            return LiteralObjectWrapper(block, V1SrcLoc(list.loc.getRow()));
+        } else if (list := List.cast(node, null)) {
+            block := _convertBlock(list);
+            for (command :in list.getElements())
+                block.add(convert(command).asValue());
+            return BlockExprWrapper(block);
+        } else if (strlit := StringLiteral.cast(node, null)) {
+            return LiteralObjectWrapper(strlit.contents,
+                                        V1SrcLoc(strlit.loc.getRow())
+                                        );
+        } else if (intlit := IntegerLiteral.cast(node, null)) {
+            return LiteralObjectWrapper(IntObj(intlit.val),
+                                        V1SrcLoc(intlit.loc.getRow())
+                                        );
+        } else if (floatlit := FloatLiteral.cast(node, null)) {
+            return LiteralObjectWrapper(FloatObj(floatlit.val),
+                                        V1SrcLoc(floatlit.loc.getRow())
+                                        );
+        } else if (stmt := IfStmt.cast(node, null)) {
+            cond := convert(stmt.cond).asValue();
+            onTrue := InterpExpr(_convertBlock(stmt.onTrue));
+            onFalse := stmt.onFalse ? InterpExpr(_convertBlock(stmt.onFalse)) : null;
+            cmd := IfStmtValue(V1SrcLoc(stmt.loc.getRow()), cond, onTrue, onFalse);
+            return ValueExprWrapper(cmd);
+        } else if (fc := FuncCall.cast(node, null)) {
+            if (def := lookUp(fc.func.text))
+                # We've got a definition.
+                return ValueExprWrapper(def.makeValue(fc));
+
+            # Fall through to the old-style weirdness.  This can go away
+            # once all names start out in the compile context.
+            cmdTerm := VarRef(V1StringLiteral(fc.func.text,
+                                            V1SrcLoc(fc.loc.getRow())
+                                            )
+                            );
+            cmd := Command(cmdTerm);
+            for (arg :in fc.args)
+                cmd.args.append(convert(arg).asTerm());
+            return ValueExprWrapper(cmd);
+        } else if (vd := VarDef.cast(node, null)) {
+            define(Variable(vd.name.text));
+            return ValueExprWrapper(
+                VarDefValue(V1SrcLoc(vd.loc.getRow()),
+                                    vd.name.text,
+                                    vd.initializer ?
+                                        convert(vd.initializer).asValue() :
+                                        null
+                            )
+            );
+        } else {
+            throw Exception(FStr() `Unknown AST node type: $(node.class.name)`);
+        }
+    }
+}
+
 ExprWrapper convert(Node node) {
-    if (list := StaticList.cast(node, null)) {
-        block := _convertBlock(list);
-        return LiteralObjectWrapper(block, V1SrcLoc(list.loc.getRow()));
-    } else if (list := List.cast(node, null)) {
-        block := _convertBlock(list);
-        for (command :in list.getElements())
-            block.add(convert(command).asValue());
-        return BlockExprWrapper(block);
-    } else if (strlit := StringLiteral.cast(node, null)) {
-        return LiteralObjectWrapper(strlit.contents,
-                                    V1SrcLoc(strlit.loc.getRow())
-                                    );
-    } else if (intlit := IntegerLiteral.cast(node, null)) {
-        return LiteralObjectWrapper(IntObj(intlit.val),
-                                    V1SrcLoc(intlit.loc.getRow())
-                                    );
-    } else if (floatlit := FloatLiteral.cast(node, null)) {
-        return LiteralObjectWrapper(FloatObj(floatlit.val),
-                                    V1SrcLoc(floatlit.loc.getRow())
-                                    );
-    } else if (stmt := IfStmt.cast(node, null)) {
-        cond := convert(stmt.cond).asValue();
-        onTrue := InterpExpr(_convertBlock(stmt.onTrue));
-        onFalse := stmt.onFalse ? InterpExpr(_convertBlock(stmt.onFalse)) : null;
-        cmd := IfStmtValue(V1SrcLoc(stmt.loc.getRow()), cond, onTrue, onFalse);
-        return ValueExprWrapper(cmd);
-    } else if (fc := FuncCall.cast(node, null)) {
-        cmdTerm := VarRef(V1StringLiteral(fc.func.text,
-                                          V1SrcLoc(fc.loc.getRow())
-                                          )
-                          );
-        cmd := Command(cmdTerm);
-        for (arg :in fc.args)
-            cmd.args.append(convert(arg).asTerm());
-        return ValueExprWrapper(cmd);
-    } else {
-        throw Exception(FStr() `Unknown AST node type: $(node.class.name)`);
-    }
+    return CompileContext().convert(node);
 }
 
 if (@SCOPE_NAME == '.main') {
