@@ -382,7 +382,7 @@ class Command : Value {
         }
         cmdVal := context.lookUp(cmdstr);
         if (!cmdVal) {
-            if (lit := StringLiteral.cast(cmdstr))
+            if (lit := StringLiteral.cast(cmdstr, null))
                 throw CrashError(getSrcLoc(), 
                                  FStr() `Invalid command: $cmdstr`
                                  );
