@@ -90,6 +90,9 @@ assert(new crash.ForStmt(s, int, str, null, slist).toString() ==
 assert(new crash.ForStmt(s, int, str, float, null).toString() ==
        "for 100 'some text' 1.5"
        );
+assert(new crash.VarDef(s, id, id, null).toString() == 'foo : foo');
+assert(new crash.VarDef(s, id, null, int).toString() == 'foo := 100');
+assert(new crash.VarDef(s, id, id, int).toString() == 'foo : foo = 100');
 
 var toker = new crash.Toker('first\nsecond', 'file', 1);
 var temp = toker.consume(9);
@@ -128,12 +131,14 @@ toker = new crash.Toker('foo;', 'file', 1);
 checkToken(toker.getToken(), 1, 0, crash.TOK_IDENT, 'foo');
 checkToken(toker.getToken(), 1, 3, crash.TOK_SEMI, ';');
 
-toker = new crash.Toker(';{}()', 'file', 1);
+toker = new crash.Toker(';{}():=', 'file', 1);
 checkToken(toker.getToken(), 1, 0, crash.TOK_SEMI, ';');
 checkToken(toker.getToken(), 1, 1, crash.TOK_LCURLY, '{');
 checkToken(toker.getToken(), 1, 2, crash.TOK_RCURLY, '}');
 checkToken(toker.getToken(), 1, 3, crash.TOK_LPAREN, '(');
 checkToken(toker.getToken(), 1, 4, crash.TOK_RPAREN, ')');
+checkToken(toker.getToken(), 1, 5, crash.TOK_COLON, ':');
+checkToken(toker.getToken(), 1, 6, crash.TOK_ASSIGN, '=');
 
 toker = new crash.Toker('1.2 1e+5 1E+5 12.34e56 100 1e-4', 'file', 1);
 checkToken(toker.getToken(), 1, 0, crash.TOK_FLOAT, '1.2');
@@ -152,8 +157,8 @@ toker = new crash.Toker("'first string' 'can\\'t parse this'", 'file', 1);
 checkToken(toker.getToken(), 1, 0, crash.TOK_STRLIT, "'first string'");
 checkToken(toker.getToken(), 1, 15, crash.TOK_STRLIT, "'can\\'t parse this'");
 
-let ast = crash.parseString("print 'this is some text' { set x 100 }");
-assert(ast.toString() == "print 'this is some text' {set undefined 100;};");
+let ast = crash.parseString("print 'this is some text' { x := 100 }");
+assert(ast.toString() == "print 'this is some text' {x := 100;};");
 
 // Assert that 'code' (string) evaluates to 'val'.
 function assertEvalsTo(code, val) {
@@ -170,6 +175,7 @@ assertEvalsTo("if 1 { 'true' }", 'true');
 assertEvalsTo("if 0 { 'true' }", null);
 assertEvalsTo("if 1 { 'true' } else { 'false' }", 'true');
 assertEvalsTo("if 0 { 'true' } else { 'false' }", 'false');
+assertEvalsTo("x := 100; x", 100);
 
 console.log('ok');
 

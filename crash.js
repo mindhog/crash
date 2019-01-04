@@ -215,6 +215,30 @@ class ForStmt extends Expr {
 
 exports.ForStmt = ForStmt;
 
+class VarDef extends Expr {
+    // loc: SrcLoc
+    // name: Ident
+    // type: Ident or null
+    // initializer: Expr or null
+    constructor(loc, name, type, initializer) {
+        super(loc);
+        this.name = name;
+        this.type = type;
+        this.initializer = initializer;
+    }
+
+    toString() {
+        let result = this.name.toString() + ' :';
+        if (this.type)
+            result += ' ' + this.type + (this.initializer ? ' ' : '');
+        if (this.initializer)
+            result += '= ' + this.initializer;
+        return result;
+    }
+}
+
+exports.VarDef = VarDef;
+
 const TOK_EOF = 0;
 exports.TOK_EOF = TOK_EOF;
 const TOK_LPAREN = 1;
@@ -235,6 +259,10 @@ const TOK_LCURLY = 8;
 exports.TOK_LCURLY = TOK_LCURLY;
 const TOK_RCURLY = 9;
 exports.TOK_RCURLY = TOK_RCURLY;
+const TOK_COLON = 9;
+exports.TOK_COLON = TOK_COLON;
+const TOK_ASSIGN = 10;
+exports.TOK_ASSIGN = TOK_ASSIGN;
 
 class Token {
     // loc: SrcLoc
@@ -255,6 +283,8 @@ class Token {
             return ':' + type + ':';
     }
 
+    isAssign() { return this.type == TOK_ASSIGN; }
+    isColon() { return this.type == TOK_COLON; }
     isEOF() { return this.type == TOK_EOF; }
     isFloat() { return this.type == TOK_FLOAT; }
     isIdent(val) {
@@ -349,12 +379,14 @@ class Toker {
             return this.makeToken(m, TOK_IDENT);
 
         // Single character symbols.
-        m = this.match(/^[;\{\}\(\)]/);
+        m = this.match(/^[;\{\}\(\):=]/);
         if (m)
             return this.makeToken(m,
                                   ({';': TOK_SEMI,
                                     '{': TOK_LCURLY, '}': TOK_RCURLY,
-                                    '(': TOK_LPAREN, ')': TOK_RPAREN
+                                    '(': TOK_LPAREN, ')': TOK_RPAREN,
+                                    ':': TOK_COLON,
+                                    '=': TOK_ASSIGN,
                                    })[m[0]]
                                    );
 
@@ -379,211 +411,6 @@ class Toker {
             return this.makeToken(m, TOK_STRLIT);
 
         console.log('no match, contents: ' + JSON.stringify(this.contents));
-
-//
-//        while (true) {
-//            byte ch;
-//            if (pos == contents.size)
-//                ch = 0;
-//            else {
-//                ch = contents[pos++];
-//                if (ch == b'\n') {
-//                    row++;
-//                    col = 0;
-//                } else {
-//                    col += 1;
-//                }
-//            }
-//            if (state == BASE) {
-//                if (!ch)
-//                    return __makeTok(TOK_EOF, null);
-//                if (ch == b'\n' || ch == b';')
-//                    return __makeTok(TOK_SEMI, String(1, ch));
-//                if (ch == b'{') {
-//                    return __makeTok(TOK_LCURLY, String(1, ch));
-//                } else if (ch == b'}') {
-//                    return __makeTok(TOK_RCURLY, String(1, ch));
-//                } else if (ch == b'(') {
-//                    return __makeTok(TOK_LPAREN, String(1, ch));
-//                } else if (ch == b')') {
-//                    return __makeTok(TOK_RPAREN, String(1, ch));
-//                } else if (ch == b"'") {
-//                    state = LIT_STR;
-//                } else if (ch == b'#') {
-//                    state = COMMENT;
-//                } else if (ch >= b'A' && ch <= b'Z' ||
-//                           ch >= b'a' && ch <= b'z' ||
-//                           ch == b'_') {
-//                    result.append(ch);
-//                    state = IDENT;
-//                } else if (isDigit(ch)) {
-//                    result.append(ch);
-//                    state = INTEGER;
-//                } else if (isSpace(ch)) {
-//                    __updateLoc();
-//                } else {
-//                    throw ParseError(
-//                        FStr() I`$(SrcLoc.get('filename', lastRow, lastCol)) \
-//                                 Unrecognized character: $ch`
-//                    );
-//                }
-//            } else if (state == IDENT) {
-//                if (ch >= b'A' && ch <= b'Z' ||
-//                    ch >= b'a' && ch <= b'z' ||
-//                    ch == b'_' ||
-//                    isDigit(ch)
-//                    ) {
-//                    result.append(ch);
-//                } else {
-//                    # Back up so we can catch it if it's a newline.
-//                    if (ch) backup();
-//                    return __makeTok(TOK_IDENT, String(result, true));
-//                }
-//            } else if (state == INTEGER) {
-//                if (isDigit(ch)) {
-//                    result.append(ch);
-//                } else if (ch == b'.') {
-//                    result.append(ch);
-//                    state = FRACTION;
-//                } else if (ch == b'e' || ch == b'E') {
-//                    result.append(ch);
-//                    state = EXPONENT_SIGN;
-//                } else {
-//                    if (ch) backup();
-//                    return __makeTok(TOK_INT, String(result, true));
-//                }
-//            } else if (state == FRACTION) {
-//                if (isDigit(ch)) {
-//                    result.append(ch);
-//                } else if (ch == b'e' || ch == b'E') {
-//                    result.append(ch);
-//                    state = EXPONENT_SIGN;
-//                } else {
-//                    if (ch) backup();
-//                    return __makeTok(TOK_FLOAT, String(result, true));
-//                }
-//            } else if (state == EXPONENT_SIGN) {
-//                if (isDigit(ch)) {
-//                    state = EXPONENT;
-//                    result.append(ch);
-//                } else if (ch == b'+' || ch == b'-') {
-//                    result.append(ch);
-//                    state = EXPONENT;
-//                } else {
-//                    if (ch) backup();
-//                    return __makeTok(TOK_FLOAT, String(result, true));
-//                }
-//            } else if (state == EXPONENT) {
-//                if (isDigit(ch)) {
-//                    result.append(ch);
-//                } else {
-//                    if (ch) backup();
-//                    return __makeTok(TOK_FLOAT, String(result, true));
-//                }
-//            } else if (state == LIT_STR) {
-//                if (ch == b'\\')
-//                    state = LIT_STR_ESC;
-//                else if (ch == b"'")
-//                    return __makeTok(TOK_STRLIT, String(result, true));
-//                else if (!ch)
-//                    throw ParseError('Premature end of file in string literal.');
-//                else
-//                    result.append(ch);
-//            } else if (state == LIT_STR_ESC) {
-//                if (ch == b'n') {
-//                    ch = b'\n';
-//                } else if (ch == b't') {
-//                    ch = b'\t';
-//                } else if (ch == b'a') {
-//                    ch = b'\a';
-//                } else if (ch == b'r') {
-//                    ch = b'\r';
-//                } else if (ch == b'b') {
-//                    ch = b'\b';
-//                } else if (ch == b'x') {
-//                    state = LIT_STR_HEX;
-//                    val = 0;
-//                    continue;
-//                } else if (ch == b'o') {
-//                    state = LIT_STR_OCT;
-//                    val = 0;
-//                    continue;
-//                } else if (ch >= b'0' && ch <= b'7') {
-//                    state = LIT_STR_OCT + 1;
-//                    val = ch - b'0';
-//                    continue;
-//                }
-//
-//                result.append(ch);
-//                state = LIT_STR;
-//            } else if (state >= LIT_STR_HEX && state < LIT_STR_OCT) {
-//                if (ch >= b'0' && ch <= b'9')
-//                    ch -= b'0';
-//                else if (ch >= b'a' && ch <= b'f')
-//                    ch = ch - b'a' + 10;
-//                else if (ch >= b'A' && ch <= b'F')
-//                    ch = ch - b'A' + 10;
-//                else {
-//                    # Not a legal hex character.  Add what we've got so far
-//                    # and switch to the next state.
-//                    result.append(val);
-//                    if (ch == b'\\') {
-//                        state = LIT_STR_ESC;
-//                        continue;
-//                    } else if (ch == b"'") {
-//                        return __makeTok(TOK_STRLIT, String(result, true));
-//                    } else {
-//                        result.append(ch);
-//                        state = LIT_STR;
-//                        continue;
-//                    }
-//                }
-//
-//                val = (val << 4) | ch;
-//
-//                # Next character.
-//                ++state;
-//                if (state == LIT_STR_OCT) {
-//                    result.append(val);
-//                    state = LIT_STR;
-//                }
-//            } else if (state >= LIT_STR_OCT && state < COMMENT) {
-//                if (ch >= b'0' && ch <= b'7')
-//                    ch -= b'0';
-//                else {
-//                    # Not a legal octal character.
-//                    result.append(val);
-//                    if (ch == b'\\') {
-//                        state = LIT_STR_ESC;
-//                        continue;
-//                    } else if (ch == b"'") {
-//                        return __makeTok(TOK_STRLIT, String(result, true));
-//                    } else {
-//                        result.append(ch);
-//                        state = LIT_STR;
-//                        continue;
-//                    }
-//                }
-//
-//                val = (val << 3) | ch;
-//
-//                ++state;
-//                if (state == COMMENT) {
-//                    result.append(val);
-//                    state = LIT_STR;
-//                    continue;
-//                }
-//            } else if (state == COMMENT) {
-//                if (ch == b'\n') {
-//                    state = BASE;
-//                    __updateLoc();
-//                } else if (!ch) {
-//                    return __makeTok(TOK_EOF, null);
-//                }
-//            }
-//        }
-//
-//        return null;
     }
 }
 
@@ -608,6 +435,13 @@ class Parser {
     parseExpr(longFuncCalls) {
         let tok = this.getToken();
         if (tok.isIdent()) {
+            // Check for a variable definition.
+            let tok2 = this.getToken();
+            if (tok2.isColon()) {
+                return this.parseVarDef(tok);
+            }
+            this.putBack(tok2);
+
             if (longFuncCalls) {
                 this.putBack(tok);
                 return this.parseFuncCall(tok);
@@ -641,6 +475,22 @@ class Parser {
         if (!tok.isSemi())
             this.putBack(tok);
         return new FuncCall(ident.loc, name, args);
+    }
+
+    parseVarDef(ident) {
+        let tok = this.getToken();
+        let name = new Ident(ident.loc, ident.text);
+        let type = null;
+        if (tok.isIdent()) {
+            type = new Ident(tok.loc, tok.text);
+            tok = this.getToken();
+        }
+        let initializer = null;
+        if (tok.isAssign())
+            initializer = this.parseExpr(true);
+        else
+            this.putBack(tok);
+        return new VarDef(ident.loc, name, type, initializer);
     }
 
     parseIfStmt(ident) {
@@ -766,6 +616,15 @@ class EvalContext {
     constructor(parent, args) {
         this.parent = parent;
         this.args = args;
+        this.defs = [];
+    }
+
+    lookUp(name) {
+        let val = this.defs[name];
+        if (val != undefined)
+            return val;
+        else
+            return this.parent ? this.parent.lookUp(name) : null;
     }
 }
 
@@ -828,6 +687,20 @@ function convert(cctx, node) {
             return (ctx) => condFunc(ctx) ? onTrueFunc(ctx) : onFalseFunc(ctx);
         } else {
             return (ctx) => condFunc(ctx) ? onTrueFunc(ctx) : null;
+        }
+    } else if (node instanceof VarDef) {
+        cctx.defs[node.name.text] = (ctx) => ctx.lookUp(node.name.text);
+        if (node.initializer) {
+            let init = convert(cctx, node.initializer);
+            return (ctx) => {
+                let val = ctx.defs[node.name.text] = init(ctx);
+                return val;
+            };
+        } else {
+            return (ctx) => {
+                ctx.defs[node.name.text] = null;
+                return null;
+            };
         }
     } else {
         throw Error('bad node type');
