@@ -342,7 +342,7 @@ class Toker {
         }
         this.col += result.length - lastIndex;
 
-        return result
+        return result;
     }
 
     makeToken(match, tokType) {
@@ -446,8 +446,9 @@ class Parser {
                 this.putBack(tok);
                 return this.parseFuncCall(tok);
             } else {
-                return
-                    new FuncCall(loc, Ident(tok.loc, tok.text), Array[Expr]());
+                return new FuncCall(tok.loc, new Ident(tok.loc, tok.text),
+                                    []
+                                    );
             }
         } else if (tok.isStrLit()) {
             return new StringLiteral(tok.loc, eval(tok.text));
@@ -661,6 +662,8 @@ function convert(cctx, node) {
         return (ctx) => node.val;
     } else if (node instanceof FuncCall) {
         let f = cctx.resolve(node.func.text);
+        if (f == undefined)
+            throw Error('Undefined name ' + node.func.text);
 
         // Convert the arguments.
         let argExprs = convertList(cctx, node.args);
@@ -703,7 +706,7 @@ function convert(cctx, node) {
             };
         }
     } else {
-        throw Error('bad node type');
+        throw Error('bad node type: ' + node);
     }
 }
 
