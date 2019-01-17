@@ -1,0 +1,20 @@
+import parser parseString;
+import crack.io cerr, FStr;
+
+@import crack.ann assert;
+
+String str(Object obj) { return FStr() `$obj` }
+
+@assert(str(parseString("if x { print 'yes' } else { print 'no' }")) ==
+        "if x {print 'yes';} else {print 'no';};"
+        );
+
+@assert(str(parseString("if (foo 'bar') { print 'yes' } else { print 'no' }")) ==
+        "if (foo 'bar';) {print 'yes';} else {print 'no';};"
+        );
+
+@assert(str(parseString("x : foo = 100")) == "x : foo = 100;");
+@assert(str(parseString("x := 100")) == "x := 100;");
+@assert(str(parseString("x : foo")) == "x : foo;");
+
+cerr `ok\n`;

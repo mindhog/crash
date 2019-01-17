@@ -1,0 +1,243 @@
+## Crash 2 Abstract syntax tree.
+
+import crack.cont.array Array;
+import crack.cont.hashmap HashMap;
+import crack.io Formatter;
+import crack.lang cmp;
+
+class SrcLoc;
+SrcLoc _get(String filename, int row, int col);
+
+## Records a source location.  These are immutable by design.
+class SrcLoc {
+    String __filename;
+    int __row, __col;
+    oper init(String filename, int row, int col) :
+        __filename = filename,
+        __row = row,
+        __col = col {
+    }
+
+    int cmp(Object other) {
+        if (o := SrcLoc.cast(other, null)) {
+            rc := cmp(__filename, o.__filename);
+            if (rc) return rc;
+            rc = cmp(__row, o.__row);
+            if (rc) return rc;
+            rc = cmp(__col, o.__col);
+            return rc;
+        } else {
+            return Object.cmp(other);
+        }
+    }
+
+    uint makeHashVal() {
+        return __filename.makeHashVal() ^ __row ^ __col;
+    }
+
+    int getRow() { return __row }
+    int getCol() { return __col }
+
+    void formatTo(Formatter out) {
+        out `$__filename:$__row:$__col`;
+    }
+
+    ## Creates a new source location object
+    @static SrcLoc get(String filename, int row, int col) {
+        return _get(filename, row, col);
+    }
+}
+
+HashMap[SrcLoc, SrcLoc] _srcLocs = {};
+SrcLoc _get(String filename, int row, int col) {
+    tmp := SrcLoc(filename, row, col);
+    result := _srcLocs.get(tmp);
+    if (!result) {
+        _srcLocs.set(tmp, tmp);
+        return tmp;
+    } else {
+        return result;
+    }
+}
+
+class Node {
+    SrcLoc loc;
+    oper init(SrcLoc loc) : loc = loc {}
+}
+
+## Identifier.
+class Ident : Node {
+    String text;
+
+    oper init(SrcLoc loc, String text) : Node(loc), text = text {}
+
+    void formatTo(Formatter out) {
+        out `$text`;
+    }
+}
+
+## An expression.
+## expression ::= literal | func_call | dynamic_list
+class Expr : Node {
+    oper init(SrcLoc loc) : Node(loc) {}
+}
+
+class FuncCall : Expr {
+    Ident func;
+    Array[Expr] args;
+
+    oper init(SrcLoc loc, Ident func, Array[Expr] args) :
+        Expr(loc),
+        func = func,
+        args = args {
+    }
+
+    void formatTo(Formatter out) {
+        out `$func`;
+        for (arg :in args)
+            out ` $arg`;
+    }
+}
+
+class List : Expr {
+    Array[Expr] _contents;
+
+    oper init(SrcLoc loc, Array[Expr] contents) :
+        Expr(loc),
+        _contents = contents {
+    }
+
+    void formatTo(Formatter out) {
+        for (expr :in _contents)
+            out `$expr;`;
+    }
+
+    Array[Expr] getElements() { return _contents }
+}
+
+class StringLiteral : Expr {
+    String contents;
+    oper init(SrcLoc loc, String contents) : Expr(loc), contents = contents {}
+
+    void formatTo(Formatter out) {
+        out `'$contents'`;
+    }
+}
+
+class IntegerLiteral : Expr {
+    int val;
+    oper init(SrcLoc loc, int val) : Expr(loc), val = val {}
+
+    void formatTo(Formatter out) {
+        out `$val`;
+    }
+}
+
+class FloatLiteral : Expr {
+    float64 val;
+    oper init(SrcLoc loc, float64 val) : Expr(loc), val = val {}
+
+    void formatTo(Formatter out) {
+        out `$val`;
+    }
+}
+
+## A list that is to be evaluated during the course of execution.
+class DynamicList : List {
+    oper init(SrcLoc loc, Array[Expr] contents) : List(loc, contents) {}
+
+    void formatTo(Formatter out) {
+        out `(`;
+        List.formatTo(out);
+        out `)`;
+    }
+}
+
+## A list that is to be passed in to a function without being evaluated.
+class StaticList : List {
+    oper init(SrcLoc loc, Array[Expr] contents) : List(loc, contents) {}
+
+    void formatTo(Formatter out) {
+        out `{`;
+        List.formatTo(out);
+        out `}`;
+    }
+}
+
+class IfStmt : Expr {
+    Expr cond;
+
+    StaticList
+        ## Expression to be evaluated when true.
+        onTrue,
+
+        ## Expresssion to be evaluated when false.  May be null, in which case
+        ## the if statement evaluates to the zero value of the onTrue result
+        ## type.
+        onFalse;
+
+    oper init(SrcLoc loc, Expr cond, StaticList onTrue, StaticList onFalse) :
+        Expr(loc),
+        cond = cond,
+        onTrue = onTrue,
+        onFalse = onFalse {
+    }
+
+    void formatTo(Formatter out) {
+        out `if $cond $onTrue`;
+        if (onFalse) out ` else $onFalse`;
+    }
+}
+
+class ForStmt : Expr {
+    Expr initializer;
+    StaticList
+        ## Condition to predicate the evaluation of the block.  May be null,
+        ## in which case the loop is performed forever (or until break).
+        cond,
+
+        ## Action to be performed after the block.
+        doAfter,
+
+        ## The main body of the loop.
+        block;
+
+    oper init(SrcLoc loc, Expr initializer, StaticList cond, StaticList doAfter,
+              StaticList block
+              ) :
+        Expr(loc),
+        initializer = initializer,
+        cond = cond,
+        doAfter = doAfter,
+        block = block {
+    }
+}
+
+class VarDef : Expr {
+
+    ## Name of the variable to assign.
+    Ident name;
+
+    ## Name of the type.  Nullable.
+    ## TODO: Types need their own AST.
+    Ident typeName;
+
+    ## Initializer expression for the variable.
+    ## Nullable.
+    Expr initializer;
+
+    oper init(SrcLoc loc, Ident name, Ident typeName, Expr initializer) :
+        Expr(loc),
+        name = name,
+        typeName = typeName,
+        initializer = initializer {
+    }
+
+    void formatTo(Formatter out) {
+        out `$name :`;
+        if (typeName)
+            out ` $typeName$(initializer ? ' ' : '')`;
+        if (initializer)
+            out `= $initializer`;
+    }
+}

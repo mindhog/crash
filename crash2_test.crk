@@ -1,0 +1,18 @@
+
+import crack.io cerr;
+import .crash2 convert;
+import .parser parseString;
+
+@import crack.ann assert;
+
+Object eval(String script) {
+    return convert(parseString(script)).evaluate();
+}
+
+@assert(eval("if 1 { 'ok' }") == 'ok');
+@assert(eval("if 0 { 'ok' }") is null);
+@assert(eval("x := 'ok'") == 'ok');
+@assert(eval("x : String = 'ok'; x") == 'ok');
+@assert(eval("x := 0; if x { 'bad' } else { 'ok' }") == 'ok');
+@assert(eval("x := 1; if x { 'ok' } else { 'bad' }") == 'ok');
+cerr `ok\n`;

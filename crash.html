@@ -1,0 +1,43 @@
+<html>
+  <head>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <script language="javascript">
+        var exports = {};
+    </script>
+    <script language="javascript" src="crash.js"></script>
+    <script language="javascript">
+        let cctx = new exports.CompileContext();
+        cctx.defs['print'] = (ctx) => {
+            let text = '';
+            for (let i = 0; i < ctx.args.length; ++i)
+                text += ctx.args[i];
+            let pre = document.createElement('pre');
+            pre.innerText = text;
+            $('div').append(pre);
+        };
+        function process(event) {
+            let text = $('textarea').val();
+            let ast = exports.parseString(text, 'input', 1);
+            let code = exports.convert(cctx, ast);
+            code(new exports.EvalContext(null, []));
+            $('textarea').val('');
+        }
+        function init() {
+            $('textarea').keypress((event) => {
+                if ((event.which == 10 || event.which == 13) && event.ctrlKey)
+                    process(event);
+            });
+        }
+
+    </script>
+  </head>
+  <body onload="init()">
+    <div>
+    </div>
+    <form action="javascript:process(event)">
+        <textarea name="input" rows="10" cols="80"></textarea>
+        <br>
+        <button>Do it.</button>
+    </form>
+  </body>
+</html>

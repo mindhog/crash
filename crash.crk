@@ -332,6 +332,10 @@ class Obj : Builtin {
     @final void define(String name, Value val) {
         vars.define(name, val);
     }
+    
+    void formatTo(Formatter out) {
+        out `Obj($vars)`;
+    }
 }
 
 Value createValueWrapper(EvalContext context, Object obj) {
@@ -378,7 +382,7 @@ class Command : Value {
         }
         cmdVal := context.lookUp(cmdstr);
         if (!cmdVal) {
-            if (lit := StringLiteral.cast(cmdstr))
+            if (lit := StringLiteral.cast(cmdstr, null))
                 throw CrashError(getSrcLoc(), 
                                  FStr() `Invalid command: $cmdstr`
                                  );
@@ -403,7 +407,7 @@ class Command : Value {
             ex.oper bind();
             throw ex;
         } catch (Exception ex) {
-            throw CrashError(getSrcLoc(), ex.text);
+            throw CrashError(getSrcLoc(), FStr() `evaluating $this: $(ex.text)`);
         }
     }
 
@@ -628,6 +632,9 @@ Block parseString(String val);
 ## that the argument can be casted to a string.
 Block parseBlockArg(Array[Object] args, int index) {
     argVal := args[index];
+    if (b := Block.cast(argVal, null))
+        return b;
+    
     if (s := StringLiteral.cast(argVal, null))
         return parseString(s, s.srcLoc.lineNum);
 
@@ -1184,3 +1191,4 @@ Object eval(String expr, EvalContext context) {
 }
 
 Object eval(String expr) { return eval(expr, null); }
+

@@ -1,0 +1,535 @@
+
+import crack.ascii isDigit, isSpace, parseInt;
+import crack.cont.array Array;
+import crack.io cerr, Formatter, FStr;
+import crack.lang AppendBuffer, CString, Exception;
+import crack.runtime atof;
+
+import .ast DynamicList, Expr, FloatLiteral, FuncCall, Ident, IfStmt,
+    IntegerLiteral, List, Node, SrcLoc, StaticList, StringLiteral, VarDef;
+import .floats parseFloat;
+
+const int
+    TOK_EOF = 0,
+    TOK_LPAREN = 1,
+    TOK_RPAREN = 2,
+    TOK_IDENT = 3,
+    TOK_SEMI = 4,
+    TOK_STRLIT = 5,
+    TOK_INT = 6,
+    TOK_FLOAT = 7,
+    TOK_LCURLY = 8,
+    TOK_RCURLY = 9,
+    TOK_COLON = 10,
+    TOK_ASSIGN = 11;
+
+class Token {
+    int type;
+    String text;
+    int lineNum, column;
+
+    oper init(int type, String text, int lineNum, int column) :
+        type = type,
+        text = text,
+        lineNum = lineNum,
+        column = column {
+    }
+
+    void formatTo(Formatter out) {
+        if (text)
+            out `$(text.getRepr())`;
+        else if (type == TOK_EOF)
+            out `<EOF>`;
+        else
+            out `:$type:`;
+    }
+
+    SrcLoc getSrcLoc() { return SrcLoc.get('filename', lineNum, column) }
+
+    bool isAssign() { return type == TOK_ASSIGN }
+    bool isColon() { return type == TOK_COLON }
+    bool isEOF() { return type == TOK_EOF }
+    bool isFloat() { return type == TOK_FLOAT }
+    bool isIdent() { return type == TOK_IDENT }
+    bool isIdent(String val) { return type == TOK_IDENT && text == val }
+    bool isInt() { return type == TOK_INT }
+    bool isLCurly() { return type == TOK_LCURLY }
+    bool isLParen() { return type == TOK_LPAREN }
+    bool isRCurly() { return type == TOK_RCURLY }
+    bool isRParen() { return type == TOK_RPAREN }
+    bool isSemi() { return type == TOK_SEMI }
+    bool isStrLit() { return type == TOK_STRLIT }
+    bool isTerminator() {
+        return type == TOK_EOF || type == TOK_RCURLY || type == TOK_RPAREN;
+    }
+}
+
+class ParseError : Exception {
+    oper init(String text) : Exception(text) {}
+}
+
+class Toker {
+    String contents;
+    uint pos;
+    uint lineNum, column;
+
+    ## Stores the last row and column position.  This should be the beginning
+    ## of the current token.  It is updated by __makeTok() and __updateLoc().
+    uint lastRow, lastCol;
+
+    oper init(String contents, int lineNum) :
+        contents = contents,
+        lineNum = lineNum,
+        lastRow = lineNum {
+    }
+
+    @final void backup() {
+        --pos;
+        if (contents[pos] == b'\n') {
+            # backing up over a newline.  Backup the line number and get the
+            # new column. (Note that the pos == 0 case that we guard against
+            # should never happen: we only ever backup at the end of a token)
+            --lineNum;
+            cur := pos;
+            while (cur && contents[cur] != b'\n') --cur;
+            column = pos - cur;
+        } else {
+            --column;
+        }
+    }
+
+    @final void __updateLoc() {
+        lastRow = lineNum;
+        lastCol = column;
+    }
+
+    @final Token __makeTok(int type, String text) {
+        result := Token(type, text, lastRow, lastCol);
+        __updateLoc();
+        return result;
+    }
+
+    Token getToken() {
+        AppendBuffer result = {128};
+        const int
+            BASE = 0,
+
+            # An identifier is a sequence of alphanumeric and underscore that
+            # may not begin with a digit.  Just like C.
+            IDENT = 1,
+
+            # States for parsing a number.
+            INTEGER = 2,
+            FRACTION = 3,
+            EXPONENT_SIGN = 4,
+            EXPONENT = 5,
+
+            LIT_STR = 6,
+            LIT_STR_ESC = 7,
+            LIT_STR_HEX = 8,  # 8, 9 for first and second character
+            LIT_STR_OCT = 10,  # 10, 11, 12 for up to three characters
+
+            COMMENT = 13;
+        int state = BASE;
+
+        # Accumulator for a hex or octal escape sequence.
+        byte val;
+
+        # Number of levels of curly bracket nesting.
+        int count;
+
+        while (true) {
+            byte ch;
+            if (pos == contents.size)
+                ch = 0;
+            else {
+                ch = contents[pos++];
+                if (ch == b'\n') {
+                    lineNum++;
+                    column = 0;
+                } else {
+                    column += 1;
+                }
+            }
+            if (state == BASE) {
+                if (!ch)
+                    return __makeTok(TOK_EOF, null);
+                if (ch == b'\n' || ch == b';')
+                    return __makeTok(TOK_SEMI, String(1, ch));
+                if (ch == b'{') {
+                    return __makeTok(TOK_LCURLY, String(1, ch));
+                } else if (ch == b'}') {
+                    return __makeTok(TOK_RCURLY, String(1, ch));
+                } else if (ch == b'(') {
+                    return __makeTok(TOK_LPAREN, String(1, ch));
+                } else if (ch == b')') {
+                    return __makeTok(TOK_RPAREN, String(1, ch));
+                } else if (ch == b':') {
+                    return __makeTok(TOK_COLON, String(1, ch));
+                } else if (ch == b'=') {
+                    return __makeTok(TOK_ASSIGN, String(1, ch));
+                } else if (ch == b"'") {
+                    state = LIT_STR;
+                } else if (ch == b'#') {
+                    state = COMMENT;
+                } else if (ch >= b'A' && ch <= b'Z' ||
+                           ch >= b'a' && ch <= b'z' ||
+                           ch == b'_') {
+                    result.append(ch);
+                    state = IDENT;
+                } else if (isDigit(ch)) {
+                    result.append(ch);
+                    state = INTEGER;
+                } else if (isSpace(ch)) {
+                    __updateLoc();
+                } else {
+                    throw ParseError(
+                        FStr() I`$(SrcLoc.get('filename', lastRow, lastCol)) \
+                                 Unrecognized character: $ch`
+                    );
+                }
+            } else if (state == IDENT) {
+                if (ch >= b'A' && ch <= b'Z' ||
+                    ch >= b'a' && ch <= b'z' ||
+                    ch == b'_' ||
+                    isDigit(ch)
+                    ) {
+                    result.append(ch);
+                } else {
+                    # Back up so we can catch it if it's a newline.
+                    if (ch) backup();
+                    return __makeTok(TOK_IDENT, String(result, true));
+                }
+            } else if (state == INTEGER) {
+                if (isDigit(ch)) {
+                    result.append(ch);
+                } else if (ch == b'.') {
+                    result.append(ch);
+                    state = FRACTION;
+                } else if (ch == b'e' || ch == b'E') {
+                    result.append(ch);
+                    state = EXPONENT_SIGN;
+                } else {
+                    if (ch) backup();
+                    return __makeTok(TOK_INT, String(result, true));
+                }
+            } else if (state == FRACTION) {
+                if (isDigit(ch)) {
+                    result.append(ch);
+                } else if (ch == b'e' || ch == b'E') {
+                    result.append(ch);
+                    state = EXPONENT_SIGN;
+                } else {
+                    if (ch) backup();
+                    return __makeTok(TOK_FLOAT, String(result, true));
+                }
+            } else if (state == EXPONENT_SIGN) {
+                if (isDigit(ch)) {
+                    state = EXPONENT;
+                    result.append(ch);
+                } else if (ch == b'+' || ch == b'-') {
+                    result.append(ch);
+                    state = EXPONENT;
+                } else {
+                    if (ch) backup();
+                    return __makeTok(TOK_FLOAT, String(result, true));
+                }
+            } else if (state == EXPONENT) {
+                if (isDigit(ch)) {
+                    result.append(ch);
+                } else {
+                    if (ch) backup();
+                    return __makeTok(TOK_FLOAT, String(result, true));
+                }
+            } else if (state == LIT_STR) {
+                if (ch == b'\\')
+                    state = LIT_STR_ESC;
+                else if (ch == b"'")
+                    return __makeTok(TOK_STRLIT, String(result, true));
+                else if (!ch)
+                    throw ParseError('Premature end of file in string literal.');
+                else
+                    result.append(ch);
+            } else if (state == LIT_STR_ESC) {
+                if (ch == b'n') {
+                    ch = b'\n';
+                } else if (ch == b't') {
+                    ch = b'\t';
+                } else if (ch == b'a') {
+                    ch = b'\a';
+                } else if (ch == b'r') {
+                    ch = b'\r';
+                } else if (ch == b'b') {
+                    ch = b'\b';
+                } else if (ch == b'x') {
+                    state = LIT_STR_HEX;
+                    val = 0;
+                    continue;
+                } else if (ch == b'o') {
+                    state = LIT_STR_OCT;
+                    val = 0;
+                    continue;
+                } else if (ch >= b'0' && ch <= b'7') {
+                    state = LIT_STR_OCT + 1;
+                    val = ch - b'0';
+                    continue;
+                }
+
+                result.append(ch);
+                state = LIT_STR;
+            } else if (state >= LIT_STR_HEX && state < LIT_STR_OCT) {
+                if (ch >= b'0' && ch <= b'9')
+                    ch -= b'0';
+                else if (ch >= b'a' && ch <= b'f')
+                    ch = ch - b'a' + 10;
+                else if (ch >= b'A' && ch <= b'F')
+                    ch = ch - b'A' + 10;
+                else {
+                    # Not a legal hex character.  Add what we've got so far
+                    # and switch to the next state.
+                    result.append(val);
+                    if (ch == b'\\') {
+                        state = LIT_STR_ESC;
+                        continue;
+                    } else if (ch == b"'") {
+                        return __makeTok(TOK_STRLIT, String(result, true));
+                    } else {
+                        result.append(ch);
+                        state = LIT_STR;
+                        continue;
+                    }
+                }
+
+                val = (val << 4) | ch;
+
+                # Next character.
+                ++state;
+                if (state == LIT_STR_OCT) {
+                    result.append(val);
+                    state = LIT_STR;
+                }
+            } else if (state >= LIT_STR_OCT && state < COMMENT) {
+                if (ch >= b'0' && ch <= b'7')
+                    ch -= b'0';
+                else {
+                    # Not a legal octal character.
+                    result.append(val);
+                    if (ch == b'\\') {
+                        state = LIT_STR_ESC;
+                        continue;
+                    } else if (ch == b"'") {
+                        return __makeTok(TOK_STRLIT, String(result, true));
+                    } else {
+                        result.append(ch);
+                        state = LIT_STR;
+                        continue;
+                    }
+                }
+
+                val = (val << 3) | ch;
+
+                ++state;
+                if (state == COMMENT) {
+                    result.append(val);
+                    state = LIT_STR;
+                    continue;
+                }
+            } else if (state == COMMENT) {
+                if (ch == b'\n') {
+                    state = BASE;
+                    __updateLoc();
+                } else if (!ch) {
+                    return __makeTok(TOK_EOF, null);
+                }
+            }
+        }
+
+        return null;
+    }
+}
+
+Ident makeIdent(Token tok) {
+    return Ident(tok.getSrcLoc(), tok.text);
+}
+
+class Parser {
+    Toker toker;
+    Array[Token] __putback = {};
+
+    oper init(Toker toker) : toker = toker {}
+
+    Token getToken() {
+        if (__putback)
+            return __putback.pop();
+        else
+            return toker.getToken();
+    }
+
+    void putBack(Token tok) { __putback.append(tok) }
+
+    Expr parseExpr(bool longFuncCalls);
+    StaticList parseStaticList(SrcLoc loc);
+    DynamicList parseDynamicList(SrcLoc loc);
+    Expr parseStatement();
+
+    FuncCall parseFuncCall(Token ident) {
+        name := makeIdent(ident);
+        tok := getToken();
+        args := Array[Expr]();
+        while (!(tok = getToken()).isTerminator() && !tok.isSemi()) {
+            putBack(tok);
+            args.append(parseExpr(false));
+        }
+        if (!tok.isSemi())
+            putBack(tok);
+        return FuncCall(ident.getSrcLoc(), name, args);
+    }
+
+    ## var_def ::= ident ':' type '=' expr
+    ##         |   ident ':' '=' expr
+    ##         |   ident ':' type
+    ##                      ^
+    VarDef parseVarDef(Token ident) {
+        id := makeIdent(ident);
+        tok := getToken();
+        if (tok.isAssign())
+            return VarDef(ident.getSrcLoc(), id, null, parseExpr(true));
+
+        # TODO: deal with complex type expressions.
+        if (!tok.isIdent())
+            throw ParseError(FStr() I`Expected type name or assignment \
+                                      operator after colon, got $tok`
+                             );
+
+        type := makeIdent(tok);
+        tok = getToken();
+        if (!tok.isAssign()) {
+            putBack(tok);
+            return VarDef(ident.getSrcLoc(), makeIdent(ident), type,
+                          null
+                          );
+        }
+
+        return VarDef(ident.getSrcLoc(), makeIdent(ident), type, parseExpr(true));
+    }
+
+    Expr parseExpr(bool longFuncCalls) {
+        tok := getToken();
+        if (tok.isIdent()) {
+
+            # First check for variable definitions/assignments.
+            tok2 := getToken();
+            if (tok2.isColon()) {
+                return parseVarDef(tok);
+#            } else if (tok2.isAssign()) {
+#                return Assign(tok.getSrcLoc(), tok.text, parseExpr(true));
+            }
+
+            putBack(tok2);
+
+            if (longFuncCalls) {
+                putBack(tok);
+                return parseFuncCall(tok);
+            } else {
+                loc := tok.getSrcLoc();
+                return FuncCall(loc, makeIdent(tok), Array[Expr]());
+            }
+        } else if (tok.isStrLit()) {
+            return StringLiteral(tok.getSrcLoc(), tok.text);
+        } else if (tok.isInt()) {
+            return IntegerLiteral(tok.getSrcLoc(), parseInt(tok.text));
+        } else if (tok.isFloat()) {
+            return FloatLiteral(tok.getSrcLoc(), parseFloat(tok.text));
+        } else if (tok.isLParen()) {
+            return parseDynamicList(tok.getSrcLoc());
+        } else if (tok.isLCurly()) {
+            return parseStaticList(tok.getSrcLoc());
+        } else {
+            throw ParseError(FStr() `Unexpected token: $tok`);
+        }
+    }
+
+    IfStmt parseIfStmt(Token ident) {
+        cond := parseExpr(false);
+        tok := getToken();
+        StaticList onTrue, onFalse;
+        if (tok.isLCurly()) {
+            onTrue = parseStaticList(tok.getSrcLoc());
+        } else {
+            # If we don't get a curly, just parse the rest as a statement.
+            putBack(tok);
+            stmt := parseStatement();
+            onTrue := StaticList(tok.getSrcLoc(), Array[Expr]![stmt]);
+        }
+
+        tok = getToken();
+        if (tok.isIdent('else')) {
+            tok = getToken();
+            if (tok.isLCurly()) {
+                onFalse = parseStaticList(tok.getSrcLoc());
+            } else {
+                stmt := parseStatement();
+                onFalse = StaticList(tok.getSrcLoc(), Array[Expr]![stmt]);
+            }
+        } else {
+            putBack(tok);
+        }
+
+        return IfStmt(ident.getSrcLoc(), cond, onTrue, onFalse);
+    }
+
+    ## Returns null if we just parse a semicolon.
+    Expr parseStatement() {
+        tok := getToken();
+        if (tok.isSemi())
+            return null;
+        else if (tok.isIdent('if'))
+            return parseIfStmt(tok);
+        putBack(tok);
+        return parseExpr(true);
+    }
+
+    void parseList(Array[Expr] list) {
+        Token tok;
+        while (!(tok = getToken()).isTerminator()) {
+            putBack(tok);
+            expr := parseStatement();
+            if (expr)
+                list.append(expr);
+        }
+        putBack(tok);
+    }
+
+    StaticList parseStaticList(SrcLoc loc) {
+        list := Array[Expr]();
+        parseList(list);
+        if (!(tok := getToken()).isRCurly())
+            throw ParseError(FStr() `Expected '}', got $tok`);
+        return StaticList(loc, list);
+    }
+
+    DynamicList parseDynamicList(SrcLoc loc) {
+        list := Array[Expr]();
+        parseList(list);
+        if (!(tok := getToken()).isRParen())
+            throw ParseError(FStr() `Expected ')', got $tok`);
+        return DynamicList(loc, list);
+    }
+
+    List parse() {
+        # Peek at the first token to store its location.
+        firstTok := getToken();
+        putBack(firstTok);
+
+        list := Array[Expr]();
+        parseList(list);
+        if (!(tok := getToken()).isEOF())
+            throw ParseError(FStr() `Expected EOF, got $tok`);
+        return List(firstTok.getSrcLoc(), list);
+    }
+}
+
+Node parseString(String text) {
+    return Parser(Toker(text, 1)).parse();
+}
+

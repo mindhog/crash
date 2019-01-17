@@ -1,0 +1,71 @@
+## Special code for converting from string to floating point and back.
+
+import crack.ascii isDigit;
+import crack.lang Buffer, Exception, ManagedBuffer;
+
+import "libc.so.6" sprintf;
+import "libm.so.6" exp10;
+
+float64 exp10(float64 exp);
+int sprintf(byteptr result, byteptr fmt, float64 val);
+
+## Parse a floating point in scientific notation, return the resulting value.
+float64 parseFloat(Buffer rep) {
+  int state = 0;
+  int pos;
+  float64 val;
+  float64 fractionMarker = 0.1;
+  float64 exp, expSign = 1;
+  while (pos < rep.size) {
+    ch := rep[pos++];
+    if (state == 0) {
+      if (isDigit(ch)) {
+        val = val * 10.0 + float64(ch - b'0');
+      } else if (ch == b'.') {
+        state = 1;
+      } else if (ch == b'e' || ch == b'E') {
+        state = 2;
+      } else {
+        throw Exception('Bad character.');
+      }
+    } else if (state == 1) {
+      if (isDigit(ch)) {
+        val += fractionMarker * float64(ch - b'0');
+        fractionMarker /= 10.0;
+      } else if (ch == b'e' || ch == b'E') {
+        state = 2;
+      } else {
+        throw Exception('Bad character.');
+      }
+    } else if (state == 2) {
+      if (isDigit(ch)) {
+        exp = exp * 10.0 + float64(ch - b'0');
+        state = 3;
+      } else if (ch == b'+') {
+        state = 3;
+      } else if (ch == b'-') {
+        expSign = -1;
+        state = 3;
+      } else {
+        throw Exception('Bad character.');
+      }
+    } else if (state == 3) {
+      if (isDigit(ch)) {
+        exp = exp * 10.0 + float64(ch - b'0');
+      } else {
+        throw Exception('Bad character');
+      }
+    }
+  }
+  if (state < 2)
+    exp = 1;
+  return val * exp10(exp * expSign);
+}
+
+## Format the floating point to a string (printf "%.12g" style).
+String formatFloat(float64 val) {
+  buf := ManagedBuffer(32);
+  len := sprintf(buf.buffer, "%.12g".buffer, val);
+  buf.size = len;
+  return String(buf, true);
+}

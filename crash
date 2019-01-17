@@ -10,7 +10,6 @@ import stdlib stdlib;
 
 ctx := createRootContext();
 ctx.define('stdlib', stdlib());
-repl(ctx);
 
 if (argv.count() < 2)
     repl(ctx);

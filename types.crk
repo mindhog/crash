@@ -23,6 +23,8 @@ class PrimObj[T] {
         else
             return Object.cmp(other);
     }
+
+    bool isTrue() { return val }
 }
 
 class IntObj : PrimObj[int] {
