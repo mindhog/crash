@@ -1,7 +1,7 @@
 
 import crack.cont.array Array;
 import crack.io cout, cerr, Formatter;
-import crack.lang cmp;
+import crack.lang cmp, Exception;
 import crash createRootContext, eval, Builtin, EvalContext, Obj, Value;
 import types IntObj, BoolObj, FloatObj;
 import repl repl;
@@ -51,8 +51,30 @@ root.define('obj', o);
 @assert(eval('$obj meth', root) == IntObj(100));
 
 @assert(eval('getInt [getInt 100]', root) == IntObj(100));
-@assert(eval('getFloat [getFloat 1.5]', root) == FloatObj(1.5));
+@assert(eval('getFloat [getFloat 1.1]', root) == FloatObj(1.1));
 @assert(eval('getBool [getBool true]', root) == BoolObj(true));
+
+@function Obj makeObj() {
+    class Foo {}
+
+    @function(Foo) int die() {
+        throw Exception('some text');
+    }
+
+    obj := Obj();
+    obj.define('die', die(Foo()));
+
+    return obj;
+}
+
+root.define('makeObj', makeObj());
+
+try {
+    eval('[makeObj] die', root);
+    @assert(false);
+} catch (Exception ex) {
+    @assert(ex.text == 'some text');
+}
 
 # Test automatic conversion.
 Value wrapFoo(EvalContext context, Object foo) {
