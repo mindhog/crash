@@ -365,7 +365,9 @@ class Toker {
 
         // Clear all whitespace and comments from the beginning of the line.
         let m = null;
-        while (m = this.match(/^(\s(#[^\n]*)?)+/)) {
+        while (m = this.match(/^(\s+|(#[^\n]*))+/)) {
+
+            console.log('comsuming ' + m[0].length + ' from ' + this.contents);
             this.consume(m[0].length);
         }
 
@@ -411,6 +413,9 @@ class Toker {
             return this.makeToken(m, TOK_STRLIT);
 
         console.log('no match, contents: ' + JSON.stringify(this.contents));
+        throw new ParseError('Unknown token: ' +
+                             JSON.stringify(this.contents)
+                             );
     }
 }
 
@@ -590,14 +595,21 @@ function parseString(text, filename, row) {
 
 exports.parseString = parseString;
 
-function print(ctx) {
-    for (let i = 0; i < ctx.args.length; ++i)
-        console.log(ctx.args[i]);
+function print(ctx, args) {
+    for (let i = 0; i < args.length; ++i)
+        console.log(args[i]);
+}
+
+function yield_(ctx, args) {
+    throw new Yielded(ctx);
 }
 
 class CompileContext {
     constructor() {
-        this.defs = [];
+        this.defs = {
+            yield: yield_,
+            print: print,
+        };
     }
 
     resolve(name) {
@@ -607,6 +619,17 @@ class CompileContext {
 
 exports.CompileContext = CompileContext;
 
+// A special exception raised whenever we do a "yield."
+class Yielded extends Error {
+    // ctx: the EvalContext to be resumed.
+    constructor(ctx) {
+        super();
+        this.ctx = ctx;
+    }
+}
+
+exports.Yielded = Yielded;
+
 // This code assumes a very simple virtual machine build on javascript
 // functions.
 // Every expression is a function that accepts a single argument which is the
@@ -614,10 +637,18 @@ exports.CompileContext = CompileContext;
 // are simply lists of these functions.
 
 class EvalContext {
-    constructor(parent, args) {
+    constructor(parent, args, block) {
         this.parent = parent;
         this.args = args;
         this.defs = [];
+
+//        // If this flag is set to true, execution stops.
+//        this.yield = false;
+
+        // The current block (array of function(EvalContext)) and the
+        // "instruction pointer," which is just an index into that block.
+        this.block = block;
+        this.ip = 0;
     }
 
     lookUp(name) {
@@ -627,6 +658,45 @@ class EvalContext {
         else
             return this.parent ? this.parent.lookUp(name) : null;
     }
+
+    // Resume execution after a "yield".  Returns the final result.
+    resume() {
+        let ctx = this;
+        let result = null;
+
+        // Continue executing and popping the parent context for as long as
+        // there is a context.
+        while (ctx) {
+            this.ip += 1;
+            for (; this.ip < ctx.block.length; ++this.ip)
+                // TODO: we need to deal with argument list contexts a little
+                // differently and store each result.
+                result = ctx.block[ctx.ip](ctx);
+            ctx = ctx.parent;
+        }
+
+        return result;
+    }
+}
+
+class ArgsContext extends EvalContext {
+    // func: the function to be after the block.
+    constructor(parent, func, block) {
+        super(parent, [], block);
+        this.func = func;
+    }
+
+    resume() {
+        let ctx = this;
+
+        for (; this.ip < ctx.block.length; ++this.ip)
+            // TODO: we need to deal with argument list contexts a little
+            // differently and store each result.
+            this.args.push(ctx.block[ctx.ip](ctx));
+
+
+        let result = this.func(ctx);
+    }
 }
 
 exports.EvalContext = EvalContext;
@@ -634,16 +704,22 @@ exports.EvalContext = EvalContext;
 // Execute a list, returns the result of the last expression.
 function evalList(ctx, list) {
     let result = null;
-    for (let i = 0; i < list.length; ++i)
-        result = list[i](ctx);
+    let localCtx = new EvalContext(ctx, [], list);
+    for (; localCtx.ip < list.length; ++localCtx.ip)
+        result = list[localCtx.ip](localCtx);
     return result;
 }
 
 // Evaluate an argument list to a list of values.  Returns the list of values.
 function evalArgs(ctx, list) {
     let args = [];
-    for (let i = 0; i < list.length; ++i)
-        args.push(list[i](ctx));
+    // XXX I think what has to happen here is that an EvalContext can start
+    // out as an argument context and then gets converted to a function call
+    // context.  We may need to resume argument contexts at multiple levels,
+    // too, so perhaps a list context can simply subsume its args context?
+    let localCtx = new ArgsContext(ctx, [], list);
+    for (; localCtx.ip < list.length; ++localCtx.ip)
+        args.push(list[localCtx.ip](localCtx));
     return args;
 }
 
@@ -655,6 +731,10 @@ function convertList(cctx, list) {
     return result;
 }
 
+// Converts an AST node to a javascript function.
+// cctx: CompileContext
+// node: Node
+// returns function(ctx: EvalContext) -> object
 function convert(cctx, node) {
     if (node instanceof StringLiteral) {
         return (ctx) => node.contents;
@@ -669,9 +749,9 @@ function convert(cctx, node) {
         let argExprs = convertList(cctx, node.args);
 
         return (ctx) => {
-            // create a new context for the function.
-            ctx = new EvalContext(ctx, evalArgs(ctx, argExprs));
-            return f.call(null, ctx);
+            // Need to eval args and populate the args list in an intermediate
+            // context
+            return f.call(null, ctx, evalArgs(ctx, argExprs));
         };
     } else if (node instanceof StaticList) {
         let funcList = convertList(cctx, node.contents);
@@ -711,3 +791,4 @@ function convert(cctx, node) {
 }
 
 exports.convert = convert;
+
