@@ -5,31 +5,39 @@
         var exports = {};
     </script>
     <script language="javascript" src="crash.js"></script>
+    <script language="javascript" src="game.js"></script>
     <script language="javascript">
         let cctx = new exports.CompileContext();
-        cctx.defs['print'] = (ctx) => {
-            let text = '';
-            for (let i = 0; i < ctx.args.length; ++i)
-                text += ctx.args[i];
-            let pre = document.createElement('pre');
-            pre.innerText = text;
-            $('div').append(pre);
-        };
+        let ectx = new exports.EvalContext(null, []);
         function process(event) {
-            let text = $('textarea').val();
-            let ast = exports.parseString(text, 'input', 1);
-            let code = exports.convert(cctx, ast);
-            code(new exports.EvalContext(null, []));
-            $('textarea').val('');
+            try {
+                let text = $('textarea').val();
+                let ast = exports.parseString(text, 'input', 1);
+                let code = exports.convert(cctx, ast);
+                code(ectx);
+                $('textarea').val('');
+                $('textarea').focus();
+            } catch (e) {
+                let pre = document.createElement('pre');
+                pre.innerText = e.message;
+                pre.setAttribute('class', 'error');
+                console.log(e.stack);
+                $('div').append(pre);
+                $('textarea').val('');
+                $('textarea').focus();
+            }
         }
         function init() {
+          registerGame(cctx);
             $('textarea').keypress((event) => {
                 if ((event.which == 10 || event.which == 13) && event.ctrlKey)
                     process(event);
             });
+            $('textarea').focus();
         }
 
     </script>
+    <link rel="stylesheet" href="style.css" type="text/css">
   </head>
   <body onload="init()">
     <div>

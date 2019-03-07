@@ -1,0 +1,31 @@
+body {
+    color: #0ff;
+    background-color: #000;
+}
+
+div {
+    background-color #222;
+}
+
+textarea {
+    color: #0f0;
+    background-color: #222;
+    border-color: #333;
+    border-bottom: 4px solid #444;
+    border-right: 4px solid #444;
+    border-left: 4px solid #111;
+    border-top: 4px solid #111;
+    margin-bottom: 4px;
+}
+
+pre.error {
+    color: #f00;
+}
+
+button {
+    color: #ff0;
+    background-color: #222;
+    border-color: #444;
+}
+
+
