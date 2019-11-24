@@ -2,6 +2,7 @@
 import crack.io cout, cerr;
 import crack.lang Exception;
 import crash eval, parseString, CrashError;
+import types IntObj, FloatObj;
 
 @import crack.ann assert;
 
@@ -131,6 +132,15 @@ try {
     tm echo 'test data'
 ") == 'test data');
 
+@assert(eval("+ 1") == IntObj(1));
+@assert(eval("+ 4 5 6") == IntObj(15));
+@assert(eval("+ 0") == IntObj(0));
+@assert(eval("+ 1.5 1.5") == FloatObj(3));
+@assert(eval("+ 2 3") == IntObj(5));
+@assert(eval("* 2 3") == IntObj(6));
+@assert(eval("/ 6 3") == IntObj(2));
+@assert(eval("- 6 3") == IntObj(3));
+@assert(eval("% 7 3") == IntObj(1));
 
 cout `ok\n`;
 

@@ -9,7 +9,9 @@ import crack.lang AppendBuffer, Exception, SubString;
 import crack.process Process;
 import crack.strutil StringArray;
     
-import .types IntObj;
+import .types IntObj, Number;
+
+@import crack.ann define;
 
 class EvalContext;
 
@@ -292,6 +294,27 @@ class SetCmd : Builtin {
         return val;
     }
 }
+
+# Numeric operations.
+@define opcmd(cls, meth, op) {
+    class cls : Builtin {
+        Object invoke(EvalContext context, Array[Object] args) {
+            if (!args)
+                throw Exception('usage: ' $op ' <number> ...');
+
+            accum := Number.convertNum(args[0]);
+            for (arg :in args.subarray(1))
+                accum = accum.meth(Number.convertNum(arg));
+            return accum;
+        }
+    }
+}
+
+@opcmd(AddCmd, plus, +);
+@opcmd(SubCmd, minus, -);
+@opcmd(MulCmd, times, *);
+@opcmd(DivCmd, div, /);
+@opcmd(ModCmd, mod, %);
 
 ## A crash object - this has its own variable dictionary that is injected as a 
 ## stack frame when a method is invoked.
@@ -1168,6 +1191,11 @@ EvalContext createRootContext() {
     ctx.define('evalfile', EvalfileCmd());
     ctx.define('proc', ProcCmd());
     ctx.define('if', IfCmd());
+    ctx.define('+', AddCmd());
+    ctx.define('-', SubCmd());
+    ctx.define('*', MulCmd());
+    ctx.define('/', DivCmd());
+    ctx.define('%', ModCmd());
     return ctx;
 }
 

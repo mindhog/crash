@@ -1,0 +1,31 @@
+## Primitive object wrapper.
+##
+## We've put this in its own module because Box doesn't exist in crack 1.5 and
+## crack also has a bug related to forward declared functions in the same
+## module as a generic definition.
+
+import crack.lang cmp;
+import crack.io Formatter;
+
+## Wraps primitive types so they can be used from Crash.
+class PrimObj[T] {
+    T val;
+    oper init(T val) : val = val {}
+
+    void formatTo(Formatter out) {
+        out `$val`;
+    }
+
+    int cmp(PrimObj other) {
+        return cmp(val, other.val);
+    }
+
+    int cmp(Object other) {
+        if ((other := PrimObj.cast(other, null)) != null)
+            return cmp(other);
+        else
+            return Object.cmp(other);
+    }
+
+    bool isTrue() { return val }
+}

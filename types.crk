@@ -1,33 +1,65 @@
 
-import crack.ascii parseInt, toLower;
+import crack.ascii isDigit, parseInt, toLower;
 import crack.runtime strtof;
 import crack.io Formatter, FStr;
 import crack.lang cmp, CString, Exception;
+import .primobj PrimObj;
 
-## Wraps primitive types so they can be used from Crash.
-class PrimObj[T] {
-    T val;
-    oper init(T val) : val = val {}
+@import crack.ann define, implements, interface;
 
-    void formatTo(Formatter out) {
-        out `$val`;
+class Number;
+Number _toInt(String val);
+Number _toFloat(String val);
+
+@interface Number {
+    @abstract Number plus(Number other);
+    @abstract Number minus(Number other);
+    @abstract Number times(Number other);
+    @abstract Number div(Number other);
+    @abstract Number mod(Number other);
+
+    @static Number convertNum(Object val) {
+        if (v := String.cast(val, null)) {
+
+            # see if this is an integer or float.
+            isInt := true;
+            for (int i = 0; i < v.count(); ++i) {
+
+                # It can still be an integer if it starts with plus or minus
+                if (i == 0 && (v[i] == b'-' || v[i] == b'+'))
+                    continue;
+
+                if (!isDigit(v[i])) {
+                    isInt = false;
+                    break;
+                }
+            }
+
+            if (isInt)
+                return _toInt(v);
+            else
+                return _toFloat(v);
+        } else if (v := Number.cast(val, null)) {
+            return v;
+        } else {
+            throw Exception(FStr() `Cannot convert $val to a number`);
+        }
     }
-
-    int cmp(PrimObj other) {
-        return cmp(val, other.val);
-    }
-
-    int cmp(Object other) {
-        if (other := PrimObj.cast(other, null))
-            return cmp(other);
-        else
-            return Object.cmp(other);
-    }
-
-    bool isTrue() { return val }
 }
 
-class IntObj : PrimObj[int] {
+Number _numAdd(int val, Number other);
+Number _numSub(int val, Number other);
+Number _numTimes(int val, Number other);
+Number _numDiv(int val, Number other);
+Number _numMod(int val, Number other);
+
+Number _numFAdd(float val, Number other);
+Number _numFSub(float val, Number other);
+Number _numFTimes(float val, Number other);
+Number _numFDiv(float val, Number other);
+Number _numFMod(float val, Number other);
+
+class IntObj : PrimObj[int] @implements Number {
     oper init(int val) : PrimObj[int](val) {}
 
     @static IntObj convert(Object val) {
@@ -38,6 +70,12 @@ class IntObj : PrimObj[int] {
         else
             throw Exception(FStr() `Cannot convert $val to an int`);
     }
+
+    Number plus(Number other) { return _numAdd(val, other) }
+    Number minus(Number other) { return _numSub(val, other) }
+    Number times(Number other) { return _numTimes(val, other) }
+    Number div(Number other) { return _numDiv(val, other) }
+    Number mod(Number other) { return _numMod(val, other) }
 }
 
 class BoolObj : PrimObj[bool] {
@@ -53,7 +91,7 @@ class BoolObj : PrimObj[bool] {
     }
 }
 
-class FloatObj : PrimObj[float] {
+class FloatObj : PrimObj[float] @implements Number {
     oper init(float val) : PrimObj[float](val) {}
 
     @static FloatObj convert(Object val) {
@@ -64,5 +102,41 @@ class FloatObj : PrimObj[float] {
         } else
             throw Exception(FStr() `Cannot cvnvert $val to a float`);
     }
+
+    Number plus(Number other) { return _numFAdd(val, other) }
+    Number minus(Number other) { return _numFSub(val, other) }
+    Number times(Number other) { return _numFTimes(val, other) }
+    Number div(Number other) { return _numFDiv(val, other) }
+    Number mod(Number other) { return _numFMod(val, other) }
 }
 
+@define numOp(sfx, op, ltype, type) {
+    Number _num$$sfx(ltype val, Number other) {
+        if (o := IntObj.cast(other, null))
+            return type(val op o.val);
+        else if (o := FloatObj.cast(other, null))
+            return FloatObj(val op o.val);
+        else
+            throw Exception(FStr() `Unknown numeric type $other`);
+    }
+}
+
+@numOp(Add, +, int, IntObj);
+@numOp(Sub, -, int, IntObj);
+@numOp(Times, *, int, IntObj);
+@numOp(Div, /, int, IntObj);
+@numOp(Mod, %, int, IntObj);
+
+@numOp(FAdd, +, float, FloatObj);
+@numOp(FSub, -, float, FloatObj);
+@numOp(FTimes, *, float, FloatObj);
+@numOp(FDiv, /, float, FloatObj);
+@numOp(FMod, %, float, FloatObj);
+
+Number _toInt(String val) {
+    return IntObj(parseInt(val));
+}
+
+Number _toFloat(String val) {
+    return FloatObj(strtof(CString(val).buffer));
+}
