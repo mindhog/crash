@@ -2,7 +2,7 @@
 import crack.cont.array Array;
 import crack.io cout, cerr, Formatter;
 import crack.lang cmp, Exception;
-import crash createRootContext, eval, Builtin, EvalContext, Obj, Value;
+import crash createRootContext, eval, Builtin, CrashError, EvalContext, Obj, Value;
 import types IntObj, BoolObj, FloatObj;
 import repl repl;
 
@@ -72,8 +72,8 @@ root.define('makeObj', makeObj());
 try {
     eval('[makeObj] die', root);
     @assert(false);
-} catch (Exception ex) {
-    @assert(ex.text == 'some text');
+} catch (CrashError ex) {
+    @assert(ex.text.endsWith('some text'));
 }
 
 # Test automatic conversion.
