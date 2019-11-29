@@ -141,6 +141,7 @@ try {
 @assert(eval("/ 6 3") == IntObj(2));
 @assert(eval("- 6 3") == IntObj(3));
 @assert(eval("% 7 3") == IntObj(1));
+@assert(eval("* 10 0") == IntObj(0));
 
 cout `ok\n`;
 

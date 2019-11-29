@@ -112,9 +112,9 @@ class FloatObj : PrimObj[float] @implements Number {
 
 @define numOp(sfx, op, ltype, type) {
     Number _num$$sfx(ltype val, Number other) {
-        if (o := IntObj.cast(other, null))
+        if ((o := IntObj.cast(other, null)) != null)
             return type(val op o.val);
-        else if (o := FloatObj.cast(other, null))
+        else if ((o := FloatObj.cast(other, null)) != null)
             return FloatObj(val op o.val);
         else
             throw Exception(FStr() `Unknown numeric type $other`);
