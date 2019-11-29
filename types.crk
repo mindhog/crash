@@ -19,7 +19,7 @@ Number _toFloat(String val);
     @abstract Number mod(Number other);
 
     @static Number convertNum(Object val) {
-        if (v := String.cast(val, null)) {
+        if (!((v := String.cast(val, null)) is null)) {
 
             # see if this is an integer or float.
             isInt := true;
@@ -39,7 +39,7 @@ Number _toFloat(String val);
                 return _toInt(v);
             else
                 return _toFloat(v);
-        } else if (v := Number.cast(val, null)) {
+        } else if (!((v := Number.cast(val, null)) is null)) {
             return v;
         } else {
             throw Exception(FStr() `Cannot convert $val to a number`);
@@ -112,9 +112,9 @@ class FloatObj : PrimObj[float] @implements Number {
 
 @define numOp(sfx, op, ltype, type) {
     Number _num$$sfx(ltype val, Number other) {
-        if ((o := IntObj.cast(other, null)) != null)
+        if (!((o := IntObj.cast(other, null)) is null))
             return type(val op o.val);
-        else if ((o := FloatObj.cast(other, null)) != null)
+        else if (!((o := FloatObj.cast(other, null)) is null))
             return FloatObj(val op o.val);
         else
             throw Exception(FStr() `Unknown numeric type $other`);

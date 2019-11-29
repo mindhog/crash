@@ -143,5 +143,8 @@ try {
 @assert(eval("% 7 3") == IntObj(1));
 @assert(eval("* 10 0") == IntObj(0));
 
+# Effective test of IntObj(0) in an expression.
+@assert(eval("+ [+ 0]") == IntObj(0));
+
 cout `ok\n`;
 
