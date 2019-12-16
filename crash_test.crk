@@ -146,5 +146,11 @@ try {
 # Effective test of IntObj(0) in an expression.
 @assert(eval("+ [+ 0]") == IntObj(0));
 
+# Test ==, !=
+@assert(eval("== foo foo"));
+@assert(!eval("== foo bar"));
+@assert(eval("!= foo bar"));
+@assert(!eval("!= foo foo"));
+
 cout `ok\n`;
 

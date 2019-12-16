@@ -9,7 +9,7 @@ import crack.lang AppendBuffer, Exception, SubString;
 import crack.process Process;
 import crack.strutil StringArray;
     
-import .types IntObj, Number;
+import .types BoolObj, IntObj, Number;
 
 @import crack.ann define;
 
@@ -315,6 +315,24 @@ class SetCmd : Builtin {
 @opcmd(MulCmd, times, *);
 @opcmd(DivCmd, div, /);
 @opcmd(ModCmd, mod, %);
+
+class EqualCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: == <val1> <val2>');
+
+        return BoolObj(args[0] == args[1]);
+    }
+}
+
+class NotEqualCmd : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: != <val1> <val2>');
+
+        return BoolObj(args[0] != args[1]);
+    }
+}
 
 ## A crash object - this has its own variable dictionary that is injected as a 
 ## stack frame when a method is invoked.
@@ -1196,6 +1214,8 @@ EvalContext createRootContext() {
     ctx.define('*', MulCmd());
     ctx.define('/', DivCmd());
     ctx.define('%', ModCmd());
+    ctx.define('==', EqualCmd());
+    ctx.define('!=', NotEqualCmd());
     return ctx;
 }
 
