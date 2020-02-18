@@ -360,7 +360,6 @@ class Obj : Builtin {
         try {
             result = methodObj.invoke(context, args.subarray(1));
         } catch (Exception ex) {
-            ex.oper bind();
             context.popFuncFrame();
             throw Exception(ex.text);
         }
@@ -445,7 +444,6 @@ class Command : Value {
             return cmdVal.invoke(context, evaledArgs);
         } catch (CrashError ex) {
             ex.stack.append(getSrcLoc());
-            ex.oper bind();
             throw ex;
         } catch (Exception ex) {
             throw CrashError(getSrcLoc(), FStr() `evaluating $this: $(ex.text)`);
@@ -490,9 +488,6 @@ class Block {
                 result = command.evaluate(context);
             } catch (CrashError ex) {
                 ex.stack.append(command.getSrcLoc());
-                # TODO: Remove this 'oper bind()' when crack 1.2 is released 
-                # (it works around a bug in exception memory management)
-                ex.oper bind();
                 throw ex;
             }
             if (context.yield)
@@ -854,6 +849,8 @@ class IfCmd : Builtin {
             }
         }
         
+        if (!context.yield)
+            context.popFuncFrame();
         return null;
     }
 }        
