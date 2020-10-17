@@ -57,6 +57,9 @@ class CrashError : Exception {
     ## Block is a sequence of Value objects, which seems questionable in 
     ## retrospect.
     SrcLoc getSrcLoc() { return SrcLoc(0) }
+
+    ## Returns the doc-string for the value.
+    String getDoc() { return '' }
 }
 
 ## A variable dictionary.

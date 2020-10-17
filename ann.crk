@@ -64,6 +64,8 @@ String convertResult(String crackType) {
 void function(CrackContext ctx) {
     String className;
 
+    docs := ctx.consumeDocs();
+
     # See if we've got a receiver type.
     NodeList receiverType;
     tok := ctx.getToken();
@@ -135,7 +137,14 @@ void function(CrackContext ctx) {
         `;
     block1 := out.cString();
     out = StringFormatter();
-    
+
+    if (docs)
+        out I`
+            String getDoc() {
+                return $(docs ? String(docs).getRepr() : "null");
+            }
+        `;
+
     out I`
             @final $retType __call(\n`;
     

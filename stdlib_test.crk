@@ -24,3 +24,5 @@ result := ev(I"
 @assert(result == 'test string\ntest string\n');
 cerr `ok\n`;
 
+@assert(ev(I"import [stdlib] doc; doc $doc") ==
+        ' Returns the doc string for a value.\n');
