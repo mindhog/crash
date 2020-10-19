@@ -152,5 +152,17 @@ try {
 @assert(eval("!= foo bar"));
 @assert(!eval("!= foo foo"));
 
+# Make sure backslashes work.
+@assert(eval('format \\\nfoo \\\nbar') == 'foobar')
+
+# Doc strings on variables and functions.
+@assert(eval("
+    var x 100 'documentation'
+    def foobar {} 'function doc string' {
+        give $x
+    }
+    foobar
+    ") == '100');
+
 cout `ok\n`;
 
