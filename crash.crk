@@ -168,6 +168,7 @@ class EvalContext {
     }
 
     @final void pushFuncFrame(VarDict vars) {
+        vars.parent = frame.vars;
         frame = Frame(frame, vars);
     }
 
