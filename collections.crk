@@ -1,0 +1,295 @@
+## Container library.
+
+import crack.cont.array Array;
+import crack.io FStr;
+import crack.lang Exception;
+import .crash parseBlockArg, parseString, Block, Builtin, EvalContext, Obj,
+    SimpleValue;
+import .types BoolObj, IntObj;
+
+@import crack.ann cvars, impl, interface;
+@import .ann function;
+
+@abstract class Iter {
+    @abstract Object elem();
+    @abstract bool next();
+    @final Iter iter() { return this }
+}
+
+## Common code for the iterator "block" commands.
+##
+## These are the commands where we apply a block to all elements provided by
+## the iterator: each, map, and filter.
+class IterBlockCommon {
+    EvalContext __ctx;
+    String __var;
+    Block __block;
+
+    oper init(String cmd, EvalContext ctx, Array[Object] args) : __ctx(ctx) {
+        if (args.count() != 2)
+            throw Exception(FStr() `Usage: iter $cmd <var> <block>`);
+
+        __var = String.cast(args[0], null);
+        if (__var is null)
+            throw Exception(
+                FStr() `Variable name in "$cmd" command must be a string`
+            );
+
+        __block = parseBlockArg(args, 1);
+    }
+
+    Object exec(Object elem) {
+        Object result;
+        __ctx.pushFuncFrame();
+        try {
+            __ctx.define(__var, SimpleValue(elem));
+            result = __block.evaluate(__ctx);
+            if (__ctx.yield)
+                # Need to short-circuit popFuncFrame in this case.
+                return null;
+        } catch (Exception ex) {
+            __ctx.popFuncFrame();
+            throw ex;
+        }
+        __ctx.popFuncFrame();
+        return result;
+    }
+
+    bool oper .yield() { return __ctx.yield }
+}
+
+class EachCmd : Builtin {
+    Iter __iter;
+
+    String getDoc() {
+        return I'\
+            Runs the block for each element provided by the iterator with the
+            variable "var" defined as the element:
+            iter each <var> <block>
+            ';
+    }
+
+    oper init(Iter iter) : __iter = iter {}
+
+    Object invoke(EvalContext ctx, Array[Object] args) {
+        common := IterBlockCommon('each', ctx, args);
+
+        for (elem :in __iter) {
+            common.exec(elem);
+            if (ctx.yield)
+                return null;
+        }
+
+        return IntObj(0);
+    }
+}
+
+class MapIter : Iter {
+
+    # True
+    bool __initialized;
+    Object __cur;
+
+    @cvars {
+        Iter __iter;
+        IterBlockCommon __common;
+    }
+
+    Object elem() {
+        if (!__initialized) {
+            __cur = __common.exec(__iter.elem());
+            if (__common.yield)
+                return null;
+            __initialized = true;
+        }
+        return __cur;
+    }
+
+    bool next() {
+        if (__iter.next()) {
+            __cur = __common.exec(__iter.elem());
+            if (__common.yield)
+                return null;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool isTrue() {
+        return __iter.isTrue();
+    }
+}
+
+Obj wrapIterator(Iter iter);
+
+class MapCmd : Builtin {
+    Iter __iter;
+
+    String getDoc() {
+        return I'\
+            Wraps the iterator in another iterator that maps the elements
+            provided to the value returned by the block:
+            iter map <var> <block>
+            ';
+    }
+
+    oper init(Iter iter) : __iter = iter {}
+
+    Object invoke(EvalContext ctx, Array[Object] args) {
+
+        # Make a copy of the current context.  This allows us to execute the
+        # block in its lexical context regardless of where the iterator is
+        # evaluated.  Then just return the wrapped iterator.
+        return wrapIterator(
+            MapIter(__iter, IterBlockCommon('map', EvalContext(ctx), args))
+        );
+    }
+}
+
+class FilterIter : Iter {
+
+    # True
+    bool __initialized;
+    Object __cur;
+
+    @cvars {
+        Iter __iter;
+        IterBlockCommon __common;
+    }
+
+    ## Updates the iterator to the first value for which the block returns
+    ## true.  Returns true unless the block yielded.
+    bool __findNext() {
+        while (__iter && !__common.exec(__iter.elem())) {
+            if (__common.yield)
+                return false;
+            __iter.next();
+        }
+        return true;
+    }
+
+    @final bool __initialize() {
+        if (!__initialized) {
+            if (!__findNext())
+                return false;
+            __initialized = true;
+        }
+        return true;
+    }
+
+    Object elem() {
+        if (!__initialize())
+            return null;
+        return __iter.elem();
+    }
+
+    bool next() {
+        return __iter.next() && __findNext() && __iter;
+    }
+
+    bool isTrue() {
+        if (!__initialize())
+            return false;
+        return __iter.isTrue();
+    }
+}
+
+class FilterCmd : Builtin {
+    Iter __iter;
+
+    String getDoc() {
+        return I'\
+            Wraps the iterator in another iterator that consists only of
+            elements for which the block evaluates to true.
+            iter filter <var> <block>
+            ';
+    }
+
+    oper init(Iter iter) : __iter = iter {}
+
+    Object invoke(EvalContext ctx, Array[Object] args) {
+
+        # See comments in Map.
+        return wrapIterator(
+            FilterIter(__iter,
+                       IterBlockCommon('filter', EvalContext(ctx), args)
+                       )
+        );
+    }
+}
+
+## The identity function.  Returns the object.
+@function(Object) Object self() {
+    return self;
+}
+
+## Wrap an iterator in an object.
+Obj wrapIterator(Iter iter) {
+
+    ## Returns the current element that the iterator is referencing.
+    @function(Iter) Object elem() {
+        return self.elem();
+    }
+
+    ## Forwards the iterator to the next element, return false if there
+    ## are no more elements.
+    @function(Iter) bool next() {
+        return self.next();
+    }
+
+    result := Obj();
+    result.define('elem', elem(iter));
+    result.define('next', next(iter));
+    result.define('each', EachCmd(iter));
+    result.define('map', MapCmd(iter));
+    result.define('filter', FilterCmd(iter));
+    result.define('self', self(iter));
+    return result;
+}
+
+@function(Array[Object]) Obj Array_iter() {
+    class ArrayIter : Iter {
+        Array[Object].ArrayIter __iter;
+        oper init(Array[Object].ArrayIter iter) : __iter = iter {}
+        Object elem() { return __iter.elem() }
+        bool next() { return __iter.next() }
+        bool isTrue() { return __iter.isTrue() }
+    }
+
+    return wrapIterator(ArrayIter(self.iter()));
+}
+
+Obj makeArrayObj(Array[Object] array) {
+    result := Obj();
+    result.define('iter', Array_iter(array));
+    return result;
+}
+
+class ArrayCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns a new array with the arguments as contents:
+            array [arg...]
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        return makeArrayObj(args);
+    }
+}
+
+## Create an array from the elements produced by the iterator.
+@function Obj arrayOf(Iter iter) {
+    result := Array[Object]();
+    for (elem :in iter)
+        result.append(elem);
+    return makeArrayObj(result);
+}
+
+@function Obj collections() {
+    result := Obj();
+    result.define('array', ArrayCmd());
+    result.define('arrayOf', arrayOf());
+    return result;
+}

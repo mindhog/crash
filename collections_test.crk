@@ -1,0 +1,49 @@
+import crack.io cout, cerr;
+import crack.lang Exception;
+import crash createRootContext, eval, parseString;
+import collections collections;
+
+@import crack.ann assert;
+
+Object ev(String code) {
+    ctx := createRootContext();
+    ctx.define('collections', collections());
+    eval("
+      import [collections] array arrayOf
+      var result ''
+      def p {v} {
+        set result [format $result $v]
+      }
+      ", ctx);
+    return eval(code, ctx);
+}
+
+@assert(ev("
+    [[array 1 2 3 4] iter] each x { p $x }
+    give $result
+    ") == '1234');
+
+@assert(ev("
+    [[[array 1 2 3 4] iter] map x { + $x 1 }] each x { p $x }
+    give $result
+    ") == '2345');
+
+@assert(ev("
+    [[[array 1 2 3 4] iter] filter x {% $x 2}] each x { p $x }
+    give $result
+    ") == '13');
+
+@assert(ev("
+    [[[array 1 2 3 4] iter] filter x {== $x 100}] each x { p $x }
+    give $result
+    ") == '');
+
+@assert(ev("
+    var arr [arrayOf [[[array 1 2 3 4] iter] self]]
+    [arr iter] each x { p $x }
+    give $result
+    ")  == '1234');
+
+
+cerr `ok\n`;
+
