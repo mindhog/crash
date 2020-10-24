@@ -219,11 +219,6 @@ class FilterCmd : Builtin {
     }
 }
 
-## The identity function.  Returns the object.
-@function(Object) Object self() {
-    return self;
-}
-
 ## Wrap an iterator in an object.
 Obj wrapIterator(Iter iter) {
 
@@ -236,6 +231,14 @@ Obj wrapIterator(Iter iter) {
     ## are no more elements.
     @function(Iter) bool next() {
         return self.next();
+    }
+
+    ## Count all of the elements and return the count.
+    @function(Iter) int count() {
+        int result;
+        for (; self; self.next())
+            ++result;
+        return result;
     }
 
     result := ObjOf[Iter](iter);
@@ -259,9 +262,14 @@ Obj wrapIterator(Iter iter) {
     return wrapIterator(ArrayIter(self.iter()));
 }
 
+@function(Array[Object]) int Array_count() {
+    return self.count();
+}
+
 Obj makeArrayObj(Array[Object] array) {
     result := ObjOf[Array[Object]](array);
     result.define('iter', Array_iter(array));
+    result.define('count', Array_count(array));
     return result;
 }
 

@@ -2,6 +2,7 @@ import crack.io cout, cerr;
 import crack.lang Exception;
 import crash createRootContext, eval, parseString;
 import collections collections;
+import types IntObj;
 
 @import crack.ann assert;
 
@@ -44,6 +45,10 @@ Object ev(String code) {
     give $result
     ")  == '1234');
 
+@assert(ev("[array 1 2 3] count") == IntObj(3));
+@assert(ev("[array] count") == IntObj(0));
+@assert(ev("[[array 1 2 3] iter] count") == IntObj(3));
+@assert(ev("[[array] iter] count") == IntObj(0));
 
 cerr `ok\n`;
 
