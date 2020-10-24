@@ -47,7 +47,8 @@ String convertArg(Arg arg, int index) {
     else if (arg.type == 'float')
         return FStr() `FloatObj.convert(args[$index]).val`;
     else
-        return FStr() `$(arg.type).cast(args[$index])`;
+        return FStr() I`$(arg.type).cast(convert(args[$index], $(arg.type)), \
+                        null)`;
 }
 
 String convertResult(String crackType) {
@@ -158,6 +159,7 @@ void function(CrackContext ctx) {
     
     out I`
             Object invoke(EvalContext context, Array[Object] args) {
+                import crash convert;
                 result := __call(
         `;
 

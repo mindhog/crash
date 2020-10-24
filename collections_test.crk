@@ -39,7 +39,7 @@ Object ev(String code) {
     ") == '');
 
 @assert(ev("
-    var arr [arrayOf [[[array 1 2 3 4] iter] self]]
+    var arr [arrayOf [[array 1 2 3 4] iter]]
     [arr iter] each x { p $x }
     give $result
     ")  == '1234');

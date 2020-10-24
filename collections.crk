@@ -4,7 +4,7 @@ import crack.cont.array Array;
 import crack.io FStr;
 import crack.lang Exception;
 import .crash parseBlockArg, parseString, Block, Builtin, EvalContext, Obj,
-    SimpleValue;
+    ObjOf, SimpleValue;
 import .types BoolObj, IntObj;
 
 @import crack.ann cvars, impl, interface;
@@ -238,13 +238,12 @@ Obj wrapIterator(Iter iter) {
         return self.next();
     }
 
-    result := Obj();
+    result := ObjOf[Iter](iter);
     result.define('elem', elem(iter));
     result.define('next', next(iter));
     result.define('each', EachCmd(iter));
     result.define('map', MapCmd(iter));
     result.define('filter', FilterCmd(iter));
-    result.define('self', self(iter));
     return result;
 }
 
@@ -261,7 +260,7 @@ Obj wrapIterator(Iter iter) {
 }
 
 Obj makeArrayObj(Array[Object] array) {
-    result := Obj();
+    result := ObjOf[Array[Object]](array);
     result.define('iter', Array_iter(array));
     return result;
 }

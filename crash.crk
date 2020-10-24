@@ -468,6 +468,33 @@ class Obj : Builtin {
     void formatTo(Formatter out) {
         out `Obj($vars)`;
     }
+
+    Object convertTo(Class cls) {
+        return cls is Obj ? this : null;
+    }
+}
+
+class ObjOf[T] : Obj {
+    T __inst;
+    oper init(T inst) : __inst = inst {}
+
+    void formatTo(Formatter out) {
+        out `$(__inst)`;
+    }
+
+    Object convertTo(Class cls) {
+        if (cls is T)
+            return __inst;
+        else
+            return Obj.convertTo(cls);
+    }
+}
+
+Object convert(Object inst, Class cls) {
+    if (obj := Obj.cast(inst, null))
+        return obj.convertTo(cls);
+    else
+        return inst;
 }
 
 Value createValueWrapper(EvalContext context, Object obj) {
