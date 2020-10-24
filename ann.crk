@@ -18,6 +18,9 @@ import crack.compiler CrackContext, Token, TOK_LPAREN, TOK_RPAREN;
 import crack.cont.array Array;
 import crack.io cerr, FStr, StringFormatter;
 import crack.lang Exception;
+import crack.strutil split;
+
+@import crack.ann SCOPE_NAME;
 
 class Arg {
     String type, name;
@@ -60,6 +63,17 @@ String convertResult(String crackType) {
         return 'FloatObj';
     else
         return '';
+}
+
+## Returns the module prefix of the crash tree in a form amenable to
+## prepending to an import module name.  For example, if this module,
+## crash.ann, was imported as "crash.ann", this would return "crash.".  If it
+## were imported simply as "ann", this would return the empty string.
+String _getCrashPrefix() {
+    curScope := split(@SCOPE_NAME, b'.');
+    curScope.pop();
+    curScope.pop();
+    return curScope ? curScope.join('.') + '.' : '';
 }
 
 void function(CrackContext ctx) {
@@ -159,7 +173,7 @@ void function(CrackContext ctx) {
     
     out I`
             Object invoke(EvalContext context, Array[Object] args) {
-                import crash convert;
+                import $(_getCrashPrefix())crash convert;
                 result := __call(
         `;
 
