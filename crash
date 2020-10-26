@@ -7,9 +7,11 @@ import crack.sys argv;
 import crash createRootContext, eval, CrashError;
 import repl repl;
 import stdlib stdlib;
+import collections collections;
 
 ctx := createRootContext();
 ctx.define('stdlib', stdlib());
+ctx.define('collections', collections());
 
 if (argv.count() < 2)
     repl(ctx);

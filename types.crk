@@ -19,7 +19,7 @@ Number _toFloat(String val);
     @abstract Number mod(Number other);
 
     @static Number convertNum(Object val) {
-        if (v := String.cast(val, null)) {
+        if (!((v := String.cast(val, null)) is null)) {
 
             # see if this is an integer or float.
             isInt := true;
@@ -39,7 +39,7 @@ Number _toFloat(String val);
                 return _toInt(v);
             else
                 return _toFloat(v);
-        } else if (v := Number.cast(val, null)) {
+        } else if (!((v := Number.cast(val, null)) is null)) {
             return v;
         } else {
             throw Exception(FStr() `Cannot convert $val to a number`);
@@ -63,9 +63,9 @@ class IntObj : PrimObj[int] @implements Number {
     oper init(int val) : PrimObj[int](val) {}
 
     @static IntObj convert(Object val) {
-        if (v := IntObj.cast(val, null))
+        if (!((v := IntObj.cast(val, null)) is null))
             return v;
-        else if (v := String.cast(val, null))
+        else if (!((v := String.cast(val, null)) is null))
             return IntObj(parseInt(v));
         else
             throw Exception(FStr() `Cannot convert $val to an int`);
@@ -82,9 +82,9 @@ class BoolObj : PrimObj[bool] {
     oper init(bool val) : PrimObj[bool](val) {}
 
     @static BoolObj convert(Object val) {
-        if (v := BoolObj.cast(val, null))
+        if (!((v := BoolObj.cast(val, null)) is null))
             return v;
-        else if (v := String.cast(val, null))
+        else if (!((v := String.cast(val, null)) is null))
             return BoolObj(toLower(v) == 'true' || parseInt(v));
         else
             throw Exception(FStr() `Cannot convert $val to an bool`);
@@ -95,9 +95,9 @@ class FloatObj : PrimObj[float] @implements Number {
     oper init(float val) : PrimObj[float](val) {}
 
     @static FloatObj convert(Object val) {
-        if (v := FloatObj.cast(val, null))
+        if (!((v := FloatObj.cast(val, null)) is null))
             return v;
-        else if (v := String.cast(val, null)) {
+        else if (!((v := String.cast(val, null)) is null)) {
             return FloatObj(strtof(CString(v).buffer));
         } else
             throw Exception(FStr() `Cannot cvnvert $val to a float`);
@@ -112,9 +112,9 @@ class FloatObj : PrimObj[float] @implements Number {
 
 @define numOp(sfx, op, ltype, type) {
     Number _num$$sfx(ltype val, Number other) {
-        if (o := IntObj.cast(other, null))
+        if (!((o := IntObj.cast(other, null)) is null))
             return type(val op o.val);
-        else if (o := FloatObj.cast(other, null))
+        else if (!((o := FloatObj.cast(other, null)) is null))
             return FloatObj(val op o.val);
         else
             throw Exception(FStr() `Unknown numeric type $other`);

@@ -1,10 +1,13 @@
 ## Crash standard library.
 
+import crack.ascii lstrip, rstrip;
 import crack.cont.array Array;
 import crack.fs makePath;
-import crack.io FStr, Reader, Seekable, Writer;
+import crack.io cout, Formatter, FStr, Reader, Seekable, Writer;
 import crack.lang AppendBuffer, Exception;
-import .crash createRootContext, eval, Builtin, EvalContext, Obj;
+import crack.regex Regex;
+import crack.strutil split;
+import .crash createRootContext, eval, Builtin, EvalContext, Obj, Value;
 import .types IntObj;
 
 @import .ann function;
@@ -25,6 +28,11 @@ import .types IntObj;
 @function(Writer) int write(String data) {
     self.write(data);
     return 0;
+}
+
+## Returns the doc string for a value.
+@function String doc(Value value) {
+    return value.getDoc()
 }
 
 class ValueError : Exception {
@@ -51,11 +59,100 @@ class ValueError : Exception {
     return result;
 }
 
-## Creates a module object for the standard library.
+const BLANKLINE_RX := Regex(r'\n\s*\n');
+
+## Indents a multi-line string.
+void indent(Formatter out, String data) {
+    for (line :in split(rstrip(data), b'\n'))
+        out `    $(lstrip(line))\n`;
+}
+
+class HelpCmd : Builtin {
+    String getDoc() {
+        return I'Show help on all names or those specified:
+            help [command-name...]
+
+            Lists all names in the current context along
+            with their brief doc descriptions (if any).  If you provide
+            arguments, these are the names of specific variables to show
+            the complete doc-strings for.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (!args) {
+            frame := context.frame;
+            while (frame) {
+                for (def :in frame.vars) {
+                    cout `$(def.key):\n`;
+                    doc := def.val.getDoc();
+                    m := BLANKLINE_RX.search(doc);
+                    if (m)
+                        indent(cout, doc.substr(0, m.begin()));
+                    else
+                        indent(cout, doc);
+                }
+                frame = frame.parent;
+            }
+        } else {
+            for (command :in args) {
+                if (command := String.cast(command, null)) {
+                    val := context.lookUp(command);
+                    if (!val) {
+                        cout `$command undefined\n`;
+                    } else {
+                        cout `$(command):\n`;
+                        indent(cout, val.getDoc());
+                    }
+                } else if (val := Value.cast(command)) {
+                    cout `$(val.getDoc())\n`;
+                } else {
+                    cout `$command is not a command name\n`;
+                }
+            }
+        }
+        return this;
+    }
+}
+
+class LookUpCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns a value object for a given name:
+            lookUp <name>
+
+            A Value is a function or the holder for a simple value.  It also
+            has a doc string, so the main current use for this built-in is
+            to convert a name to a parameter for "doc".
+
+            Example:
+                doc [lookUp foo]
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 1)
+            throw Exception('Usage: lookUp <name>');
+        arg := String.cast(args[0], null);
+        if (arg is null)
+            throw Exception('The name value in lookUp must be a string.');
+
+        return context.lookUp(arg);
+    }
+}
+
+## Returns a module object for the standard library.
+##
 ## Functions defined are:
 ##  open <filename> <mode>
+##  doc
+##  help [command...]
+##  lookUp <name>
 @function Obj stdlib() {
     obj := Obj();
     obj.define('open', open());
+    obj.define('doc', doc());
+    obj.define('help', HelpCmd());
+    obj.define('lookUp', LookUpCmd());
     return obj;
 }

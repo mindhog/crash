@@ -141,6 +141,28 @@ try {
 @assert(eval("/ 6 3") == IntObj(2));
 @assert(eval("- 6 3") == IntObj(3));
 @assert(eval("% 7 3") == IntObj(1));
+@assert(eval("* 10 0") == IntObj(0));
+
+# Effective test of IntObj(0) in an expression.
+@assert(eval("+ [+ 0]") == IntObj(0));
+
+# Test ==, !=
+@assert(eval("== foo foo"));
+@assert(!eval("== foo bar"));
+@assert(eval("!= foo bar"));
+@assert(!eval("!= foo foo"));
+
+# Make sure backslashes work.
+@assert(eval('format \\\nfoo \\\nbar') == 'foobar')
+
+# Doc strings on variables and functions.
+@assert(eval("
+    var x 100 'documentation'
+    def foobar {} 'function doc string' {
+        give $x
+    }
+    foobar
+    ") == '100');
 
 cout `ok\n`;
 

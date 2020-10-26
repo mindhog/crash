@@ -8,8 +8,8 @@ import crack.io cout, cerr, Formatter, FStr, StringFormatter;
 import crack.lang AppendBuffer, Exception, SubString;
 import crack.process Process;
 import crack.strutil StringArray;
-    
-import .types IntObj, Number;
+
+import .types BoolObj, IntObj, Number;
 
 @import crack.ann define;
 
@@ -21,17 +21,17 @@ class EvalContext;
 class SrcLoc {
     int lineNum;
     oper init(int lineNum) : lineNum = lineNum {}
-    
+
     void formatTo(Formatter out) { out `line $lineNum` }
 }
 
 class CrashError : Exception {
     Array[SrcLoc] stack = {};
-    
+
     oper init(SrcLoc loc, String text) : Exception(text) {
         stack.append(loc);
     }
-    
+
     void formatTo(Formatter out) {
         for (int i = stack.count() - 1; i >= 0; --i)
             out `$(stack[i])\n`;
@@ -53,16 +53,19 @@ class CrashError : Exception {
     ## Invoke the function associated with the value with the given arguments.
     @abstract Object invoke(EvalContext context, Array[Object] args);
 
-    ## Returns the source location for a value.  This exists primarily because 
-    ## Block is a sequence of Value objects, which seems questionable in 
+    ## Returns the source location for a value.  This exists primarily because
+    ## Block is a sequence of Value objects, which seems questionable in
     ## retrospect.
     SrcLoc getSrcLoc() { return SrcLoc(0) }
+
+    ## Returns the doc-string for the value.
+    String getDoc() { return '' }
 }
 
 ## A variable dictionary.
 class VarDict : HashMap[String, Value] {
 
-    ## The parent of a VarDict is the VarDict of the context in which the 
+    ## The parent of a VarDict is the VarDict of the context in which the
     ## function is defined.
     VarDict parent;
 
@@ -93,12 +96,12 @@ class VarDict : HashMap[String, Value] {
                             );
         holder.set(val);
     }
-}    
+}
 
 # A stack frame.
 class Frame {
     Frame parent;
-    
+
     ## The variable dictionary.
     VarDict vars = {};
 
@@ -108,26 +111,26 @@ class Frame {
     ## The instruction pointer.  This is a an index into block indicating the
     ## next instruction to evaluated.
     uint ip;
-    
+
     oper init() {}
     oper init(Frame parent) : parent = parent, vars = VarDict(parent.vars) {}
     oper init(Frame parent, VarDict vars) : parent = parent, vars = vars {}
 }
 
-# Function to return a Value for an object (essentially, encapsulating the 
+# Function to return a Value for an object (essentially, encapsulating the
 # object in something that we can invoke methods on).
 alias ValueConverter = Functor2[Value, EvalContext, Object];
 
-## A string that was parsed out of the source code (has an associated line 
+## A string that was parsed out of the source code (has an associated line
 ## number).
 class StringLiteral : SubString {
     SrcLoc srcLoc;
-    
+
     oper init(String rep, SrcLoc srcLoc) :
         SubString(rep, 0),
         srcLoc = srcLoc {
     }
-    
+
     SrcLoc getErrorLoc() { return srcLoc }
 }
 
@@ -138,8 +141,8 @@ class EvalContext {
 
     ## Set this to true to cause evaluation to yield.
     bool yield;
-    
-    ## Mapping from class id to a function that returns a Value object for 
+
+    ## Mapping from class id to a function that returns a Value object for
     ## instances of that class.
     HashMap[uintz, ValueConverter] __classMap = {};
 
@@ -159,32 +162,33 @@ class EvalContext {
     @final void set(String name, Object val) {
         frame.vars.set(name, val);
     }
-    
+
     @final void pushFuncFrame() {
         frame = Frame(frame);
     }
-    
+
     @final void pushFuncFrame(VarDict vars) {
+        vars.parent = frame.vars;
         frame = Frame(frame, vars);
     }
-    
+
     @final void popFuncFrame() {
         frame = frame.parent;
     }
 
-    ## Define a value converter for the specified class.    
+    ## Define a value converter for the specified class.
     ##
-    ## A ValueConverter converts an instance of a class to a Value object, 
+    ## A ValueConverter converts an instance of a class to a Value object,
     ## effectively allowing methods to be called on it from crash.
     @final void defineConverter(Class cls, ValueConverter converter) {
         __classMap[uintz(cls)] = converter;
     }
-    
-    @final void defineConverter(Class cls, 
+
+    @final void defineConverter(Class cls,
                                 function[Value, EvalContext, Object] converter) {
         __classMap[uintz(cls)] = ValueConverter.Wrap(converter);
     }
-    
+
     ## Get the value converter for the specified class.
     @final ValueConverter getConverter(Class cls) {
         return __classMap.get(uintz(cls));
@@ -195,8 +199,14 @@ Value createValueWrapper(EvalContext context, Object obj);
 
 class SimpleValue : Value {
     Object __val;
+    String __doc;
 
     oper init(Object val) : __val = val {}
+    oper init(Object val, String doc) : __val = val, __doc = doc {}
+
+    String getDoc() {
+        return __doc ? __doc : '';
+    }
 
     Object evaluate(EvalContext context) {
         return __val;
@@ -228,6 +238,13 @@ class SimpleValue : Value {
 }
 
 class PrintCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Prints all of the arguments to standard output:
+            print <arg>...
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         for (arg :in args)
             cout `$arg`;
@@ -236,6 +253,16 @@ class PrintCmd : Builtin {
 }
 
 class FormatCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns a string containing all of the arguments formatted:
+            format <arg>...
+
+            This is the equivalent of the "print" command only instead of
+            writing to standard output, it formats a string.
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         StringFormatter tmp = {};
         for (arg :in args) {
@@ -248,6 +275,13 @@ class FormatCmd : Builtin {
 
 ## Run a Subprocess.
 class ProcCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Run a subprocess, returns the result code:
+            proc <command> [arg...]
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         StringArray argv = {};
         for (arg :in args)
@@ -258,6 +292,21 @@ class ProcCmd : Builtin {
 
 ## "give" just returns the value of its first argument.
 class GiveCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns the value of the first argument:
+            give <value>
+
+            "give" is useful in cases where you want to return the value of a
+            variable or constant from a block.  For example:
+
+                var result [if {give $condition} {give true} else {give false}]
+
+            Without the "give" statements above, the interpreter would assume
+            that $condition, true and false were commands.
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         if (args.count() != 1)
             throw Exception('"give" must have exactly one argument.');
@@ -266,8 +315,20 @@ class GiveCmd : Builtin {
 }
 
 class VarCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Define a variable:
+            var <var-name> <initial-value> [documentation]
+
+            Defines a variable in the current context.  The variable will be
+            visible in the current context and all nested contexts, and will
+            be cleaned up when the context goes out of scope.
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
-        if (args.count() != 2)
+        ac := args.count();
+        if (ac < 2 || ac > 3)
             throw Exception('usage: var <var> <value>');
 
         String var = String.cast(args[0], null);
@@ -275,12 +336,24 @@ class VarCmd : Builtin {
             throw Exception('first argument of var must be a string');
 
         Object val = args[1];
-        context.define(var, SimpleValue(val));
+        context.define(var,
+                       SimpleValue(val, ac == 3 ? String.cast(args[2]) : null)
+                       );
         return val;
     }
 }
 
 class SetCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Set an existing variable to the given value.
+            set <var-name> <value>
+
+            Note that the variable must have already been defined using the
+            "var" command.
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         if (args.count() != 2)
             throw Exception('usage: set <var> <value>');
@@ -296,8 +369,9 @@ class SetCmd : Builtin {
 }
 
 # Numeric operations.
-@define opcmd(cls, meth, op) {
+@define opcmd(cls, meth, op, doc) {
     class cls : Builtin {
+        String getDoc() { return doc }
         Object invoke(EvalContext context, Array[Object] args) {
             if (!args)
                 throw Exception('usage: ' $op ' <number> ...');
@@ -310,13 +384,49 @@ class SetCmd : Builtin {
     }
 }
 
-@opcmd(AddCmd, plus, +);
-@opcmd(SubCmd, minus, -);
-@opcmd(MulCmd, times, *);
-@opcmd(DivCmd, div, /);
-@opcmd(ModCmd, mod, %);
+@opcmd(AddCmd, plus, +, 'Returns the sum of all arguments');
+@opcmd(SubCmd, minus, -, 'Returns the first argument minus all others');
+@opcmd(MulCmd, times, *, 'Returns the product of all arguments');
+@opcmd(DivCmd, div, /,
+       I'Returns the first argument divided by the second (and that divided
+         by the third, and so on)');
+@opcmd(ModCmd, mod, %,
+       I'Returns the remainder of the first argument divided by the second
+         (and that divided by the third, and so on)');
 
-## A crash object - this has its own variable dictionary that is injected as a 
+class EqualCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns true if its two arguments are equal, false if not:
+            == <value> <value>
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: == <val1> <val2>');
+
+        return BoolObj(args[0] == args[1]);
+    }
+}
+
+class NotEqualCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns true if its two arguments are not equal, false if not:
+            != <value> <value>
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: != <val1> <val2>');
+
+        return BoolObj(args[0] != args[1]);
+    }
+}
+
+## A crash object - this has its own variable dictionary that is injected as a
 ## stack frame when a method is invoked.
 class Obj : Builtin {
     Obj parent;
@@ -328,37 +438,63 @@ class Obj : Builtin {
     Object invoke(EvalContext context, Array[Object] args) {
         if (!args)
             return this;
-        
+
         method := String.cast(args[0], null);
         if (!method)
             throw Exception('Method names must be strings.');
-        
+
         methodObj := vars.lookUp(method);
         if (!methodObj)
             throw Exception(FStr() `Undefined method: $method`);
-        
+
         context.pushFuncFrame(vars);
         Object result;
         try {
             result = methodObj.invoke(context, args.subarray(1));
         } catch (Exception ex) {
-            ex.oper bind();
             context.popFuncFrame();
             throw Exception(ex.text);
         }
         context.popFuncFrame();
-        
+
         return result;
     }
-    
+
     ## Define a name in the object's variable dictionary.
     @final void define(String name, Value val) {
         vars.define(name, val);
     }
-    
+
     void formatTo(Formatter out) {
         out `Obj($vars)`;
     }
+
+    Object convertTo(Class cls) {
+        return cls is Obj ? this : null;
+    }
+}
+
+class ObjOf[T] : Obj {
+    T __inst;
+    oper init(T inst) : __inst = inst {}
+
+    void formatTo(Formatter out) {
+        out `$(__inst)`;
+    }
+
+    Object convertTo(Class cls) {
+        if (cls is T)
+            return __inst;
+        else
+            return Obj.convertTo(cls);
+    }
+}
+
+Object convert(Object inst, Class cls) {
+    if (obj := Obj.cast(inst, null))
+        return obj.convertTo(cls);
+    else
+        return inst;
 }
 
 Value createValueWrapper(EvalContext context, Object obj) {
@@ -386,11 +522,11 @@ class Command : Value {
         # one already.
         # TODO: split Command into LiteralCommand and EvaledCommand.
         cmdobj := command.evaluate(context);
-        
+
         # If the command is already a value, just return it.
         if (valobj := Value.cast(cmdobj, null))
             return valobj;
-        
+
         # Convert it to a string and do a lookup.
         String cmdstr;
         if ( !(cmdstr = String.cast(cmdobj, null)) ) {
@@ -401,18 +537,18 @@ class Command : Value {
                 throw Exception(FStr() I`Object $cmdobj is not a string and \
                                          can not be converted to a value.`
                                 );
-                                
+
         }
         cmdVal := context.lookUp(cmdstr);
         if (!cmdVal) {
             if (lit := StringLiteral.cast(cmdstr, null))
-                throw CrashError(getSrcLoc(), 
+                throw CrashError(getSrcLoc(),
                                  FStr() `Invalid command: $cmdstr`
                                  );
             else
                 throw Exception(FStr() `Invalid command: $cmdstr`);
         }
-        
+
         return cmdVal;
     }
 
@@ -427,7 +563,6 @@ class Command : Value {
             return cmdVal.invoke(context, evaledArgs);
         } catch (CrashError ex) {
             ex.stack.append(getSrcLoc());
-            ex.oper bind();
             throw ex;
         } catch (Exception ex) {
             throw CrashError(getSrcLoc(), FStr() `evaluating $this: $(ex.text)`);
@@ -451,7 +586,7 @@ class Command : Value {
         for (arg :in args)
             out ` $arg`;
     }
-    
+
     SrcLoc getSrcLoc() {
         return command.getSrcLoc();
     }
@@ -472,9 +607,6 @@ class Block {
                 result = command.evaluate(context);
             } catch (CrashError ex) {
                 ex.stack.append(command.getSrcLoc());
-                # TODO: Remove this 'oper bind()' when crack 1.2 is released 
-                # (it works around a bug in exception memory management)
-                ex.oper bind();
                 throw ex;
             }
             if (context.yield)
@@ -500,7 +632,7 @@ class InterpolatedCommand : Term {
     Object evaluate(EvalContext context) {
         return contents.evaluate(context);
     }
-    
+
     SrcLoc getSrcLoc() {
         if (contents && contents.commands)
             return contents.commands[0].getSrcLoc();
@@ -522,7 +654,7 @@ class LiteralStringTerm : Term {
     void formatTo(Formatter out) {
         out `$(val.getRepr())`;
     }
-    
+
     SrcLoc getSrcLoc() {
         return val.srcLoc;
     }
@@ -545,11 +677,11 @@ class VarRef : Term {
     void formatTo(Formatter out) {
         out `\$$varName`;
     }
-    
+
     SrcLoc getSrcLoc() { return varName.srcLoc }
 }
 
-## An interpolation expression - a block of the form "[ statements ... ]"  
+## An interpolation expression - a block of the form "[ statements ... ]"
 ## Evaluates the block and returns the result.
 class InterpExpr : Term {
     Block block;
@@ -559,18 +691,18 @@ class InterpExpr : Term {
         vars := context.frame.vars;
         context.pushFuncFrame();
         context.frame.vars.parent = vars;
-        
+
         result := block.evaluate(context);
         if (!context.yield)
             context.popFuncFrame();
-        
+
         return result;
     }
-    
+
     void formatTo(Formatter out) {
         out `[$block]`;
     }
-    
+
     SrcLoc getSrcLoc() {
         if (block && block.commands)
             return block.commands[0].getSrcLoc();
@@ -598,20 +730,23 @@ class ActiveFunc : Value {
 
     Array[String] argVars;
     Block body;
+    String doc;
 
-    oper init(String name, VarDict ownerVars, Array[String] argVars, 
-              Block body
+    oper init(String name, VarDict ownerVars, Array[String] argVars,
+              Block body,
+              String doc
               ) :
         name = name,
         ownerVars = ownerVars,
         argVars = argVars,
-        body = body {
+        body = body,
+        doc = doc {
     }
 
     Object evaluate(EvalContext context) {
         return this;
     }
-    
+
     Object invoke(EvalContext context, Array[Object] args) {
         # Make sure we have the right number of arguments.
         if (args.count() != argVars.count())
@@ -621,43 +756,47 @@ class ActiveFunc : Value {
 
         # Push a new stack frame.
         context.pushFuncFrame();
-        
+
         # Chain variable lookups to the parent.
         context.frame.vars.parent = ownerVars;
-        
+
         # Define all of the argument variables with their values.
         for (argIter :on args)
             context.define(argVars[argIter.index], SimpleValue(argIter.elem()));
-        
+
         # Evaluate the function.
         result := body.evaluate(context);
-        
+
         # If the function wasn't yielded, clean up the stack frame.
         if (!context.yield)
             context.popFuncFrame();
-        
+
         return result;
     }
-    
+
+    String getDoc() {
+        return doc ? doc : '';
+    }
+
     void set(Object value) {
         throw Exception('Can not set a function');
     }
-    
+
     void formatTo(Formatter out) {
-        out `func $argVars {\n$body}`
+        out `func $argVars $(doc ? doc.getRepr() : '') {\n$body}`
     }
 }
 
 Block parseString(String val, int lineNum);
 Block parseString(String val);
 
-## Parses a block argument.  Does not check for a valid index, but does verify 
+## Parses a block argument.  Does not check for a valid index, but does verify
 ## that the argument can be casted to a string.
 Block parseBlockArg(Array[Object] args, int index) {
     argVal := args[index];
     if (b := Block.cast(argVal, null))
         return b;
-    
+
     if (s := StringLiteral.cast(argVal, null))
         return parseString(s, s.srcLoc.lineNum);
 
@@ -669,6 +808,23 @@ Block parseBlockArg(Array[Object] args, int index) {
 
 ## A function definition.  When invoked, these create an ActiveFunc.
 class FuncDef : Value {
+
+    String getDoc() {
+        return I'\
+            Define a function:
+            def <function-name> <args> <body>
+            def <function-name> <args> <documentation> <body>
+
+            Define a function.  The arg list is simply a list of variable
+            names, the body is a crash block.
+
+            If provided, the documentation argument is a string to be
+            displayed in the help text.  The brief help (displayed when
+            listing help without an argument) is the text up to the first
+            blank line, the complete help is all of the text in the string.
+            ';
+    }
+
     Object evaluate(EvalContext context) {
         return this;
     }
@@ -678,32 +834,50 @@ class FuncDef : Value {
     }
 
     Object invoke(EvalContext context, Array[Object] args) {
-        if (args.count() != 3)
+        if (args.count() < 3 || args.count() > 4)
             throw Exception(I'Bad function definition, should be def <args> \
-                              <body>');
+                              <body> or def <args> <doc> <body>');
         name := String.cast(args[0]);
         funcArgs := wsplit(strip(String.cast(args[1])));
-        body := parseBlockArg(args, 2);
-        
+        cur := 2;
+        String doc;
+        if (args.count() == 4) {
+            doc = String.cast(args[cur++], null);
+            if (doc is null)
+                throw Exception('String argument expected for doc.');
+        }
+        body := parseBlockArg(args, cur);
+
         # If there are no args, wsplit gives us [''], so remove that.
         if (funcArgs[0] == '')
             funcArgs.delete(0);
 
         # Create a function and register it.
-        result := ActiveFunc(name, context.frame.vars, funcArgs, body);
+        result := ActiveFunc(name, context.frame.vars, funcArgs, body, doc);
         context.define(name, result);
-        
+
         return result;
     }
 }
 
 ## Command to create an object.
 class ObjectCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Create an object:
+            object <block>
+
+            The block is executed in the context of the object.  All variables
+            created and functions defined become instance variables and
+            methods of the new object.
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         if (args.count() != 1)
             throw Exception('Usage: object { statement... }');
-        
-        # Parse and evaluate the body, steal the variable dict from the 
+
+        # Parse and evaluate the body, steal the variable dict from the
         # resulting stack frame.
         body := parseBlockArg(args, 0);
         context.pushFuncFrame();
@@ -715,17 +889,24 @@ class ObjectCmd : Builtin {
         }
         vars := context.frame.vars;
         context.popFuncFrame();
-        
+
         return Obj(vars);
     }
 }
 
 ## Command to import a set of names from an object.
 class ImportCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Imports names from an object into the current context:
+            import <object> <name>...
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         if (args.count() < 2)
             throw Exception('Usage: import <object> <name> ...');
-        
+
         obj := Obj.cast(args[0]);
         for (name :in args.subarray(1)) {
             nm := String.cast(name, null);
@@ -735,22 +916,40 @@ class ImportCmd : Builtin {
     }
 }
 
-## Command to evaluate a file and return the module as an object. You can 
+## Command to evaluate a file and return the module as an object. You can
 ## import symbols defined in the file from the result, for example:
 ##      import [evalfile foo.crash] bar baz
 ##
-## Alternately, you can simply assign the result to a variable which becomes a 
+## Alternately, you can simply assign the result to a variable which becomes a
 ## sort of namespace:
 ##      var foo [evalfile foo.crash]
 ##      foo bar
 ##
-## The file is evaluated in a subcontext of the current context, which 
+## The file is evaluated in a subcontext of the current context, which
 ## isn't very good as it allows definitions to leak into the file's context.
 class EvalfileCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Evaluates the file and returns the module as an object:
+            evalfile <filename>
+
+            You may import symbols defined in the file from the result, for
+            example:
+                import [evalfile foo.crash] bar baz
+
+            Alternately, you can simply assign the result to a variable which
+            becomes a sort of namespace:
+                var foo [evalfile foo.crash]
+                foo bar
+
+            The file is evaluated in a subcontext of the current context.
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         if (args.count() != 1)
             throw Exception('Usage: evalfile <filename>');
-        
+
         name := String.cast(args[0]);
         contents := makePath(name).readAll();
         context.pushFuncFrame();
@@ -766,6 +965,15 @@ class EvalfileCmd : Builtin {
 }
 
 class IfCmd : Builtin {
+
+    String getDoc() {
+        return I'\
+            The "if" statement: if <cond-block> <true-block> {[else|elif] ...}
+
+            Returns the value of the condition that was chosen.
+            ';
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         argCount := args.count();
         if (argCount < 2)
@@ -774,7 +982,7 @@ class IfCmd : Builtin {
                             );
         cond := parseBlockArg(args, 0);
         trueBlock := parseBlockArg(args, 1);
-        
+
         # Evaluate the condition.
         context.pushFuncFrame();
         result := cond.evaluate(context);
@@ -787,7 +995,7 @@ class IfCmd : Builtin {
                 context.popFuncFrame();
             return result;
         }
-        
+
         # Evaluate elif/else.
         int index = 2;
         while (index < argCount) {
@@ -811,16 +1019,16 @@ class IfCmd : Builtin {
                 # Make sure we have at least two more arguments.
                 if (argCount < index + 2)
                     throw Exception('Missing condition or block after "elif"');
-                
+
                 cond = parseBlockArg(args, index + 1);
-                
-                # XXX Somehow when we resume, we're going to need to start 
-                # from this point instead of reevaluating the entire if 
+
+                # XXX Somehow when we resume, we're going to need to start
+                # from this point instead of reevaluating the entire if
                 # statement.
                 result = cond.evaluate(context);
                 if (result is null && context.yield)
                     return null;
-                
+
                 if (result) {
                     block := parseBlockArg(args, index + 2);
                     result = block.evaluate(context);
@@ -828,24 +1036,26 @@ class IfCmd : Builtin {
                         context.popFuncFrame();
                     return result;
                 }
-                
+
                 index += 3;
             } else {
                 cerr `$args, $index, $kw\n`;
                 throw Exception("'else' or 'elif' expected");
             }
         }
-        
+
+        if (!context.yield)
+            context.popFuncFrame();
         return null;
     }
-}        
+}
 
 const int
     TOK_EOF = 0,
     TOK_STR = 1,
     TOK_SEMI = 2,
     TOK_VAR = 3,
-    
+
     # Left and right square brackets.
     TOK_LBRACK = 4,
     TOK_RBRACK = 5;
@@ -899,15 +1109,16 @@ class Toker {
             LIT_STR_HEX = 7,  # 7, 8 for first and second character
             LIT_STR_OCT = 9,  # 9, 10, 11 for up to three characters
 
-            COMMENT = 12;
+            COMMENT = 12,
+            BACKSLASH = 13;
         int state = BASE;
-        
+
         # Accumulator for a hex or octal escape sequence.
         byte val;
 
         # Number of levels of curly bracket nesting.
         int count;
-        
+
         # Line number at the start of the token.
         int startLineNum;
 
@@ -941,6 +1152,8 @@ class Toker {
                     startLineNum = lineNum;
                 } else if (ch == b'#') {
                     state = COMMENT;
+                } else if (ch == b'\\') {
+                    state = BACKSLASH;
                 } else if (!isSpace(ch)) {
                     result.append(ch);
                     state = WORD;
@@ -963,7 +1176,7 @@ class Toker {
                     ++count;
                 } else if (ch == b'}') {
                     if (!--count)
-                        return Token(TOK_STR, String(result, true), 
+                        return Token(TOK_STR, String(result, true),
                                      startLineNum
                                      );
                 } else if (!ch) {
@@ -985,7 +1198,7 @@ class Toker {
                     return Token(TOK_VAR, String(result, true), startLineNum);
                 }
             } else if (state == LIT_STR) {
-                if (ch == b'\\') 
+                if (ch == b'\\')
                     state = LIT_STR_ESC;
                 else if (ch == b"'")
                     return Token(TOK_STR, String(result, true), startLineNum);
@@ -1028,7 +1241,7 @@ class Toker {
                 else if (ch >= b'A' && ch <= b'F')
                     ch = ch - b'A' + 10;
                 else {
-                    # Not a legal hex character.  Add what we've got so far 
+                    # Not a legal hex character.  Add what we've got so far
                     # and switch to the next state.
                     result.append(val);
                     if (ch == b'\\') {
@@ -1044,7 +1257,7 @@ class Toker {
                 }
 
                 val = (val << 4) | ch;
-                
+
                 # Next character.
                 ++state;
                 if (state == LIT_STR_OCT) {
@@ -1068,9 +1281,9 @@ class Toker {
                         continue;
                     }
                 }
-                
+
                 val = (val << 3) | ch;
-                
+
                 ++state;
                 if (state == COMMENT) {
                     result.append(val);
@@ -1082,6 +1295,13 @@ class Toker {
                     state = BASE;
                 else if (!ch)
                     return Token(TOK_EOF, null, lineNum);
+            } else if (state == BACKSLASH) {
+                if (ch == b'\n') {
+                    state = BASE;
+                } else {
+                    result.append(ch);
+                    state = WORD;
+                }
             }
         }
 
@@ -1096,7 +1316,7 @@ class ParseContext {
 
     oper init() {}
     oper init(ParseContext parent) : parent = parent {}
-    
+
     ## Adds a new term to the current command.
     void addTerm(Term term) {
         if (!cmd)
@@ -1104,7 +1324,7 @@ class ParseContext {
         else
             cmd.args.append(term);
     }
-    
+
     void endCommand() {
         if (cmd) {
             block.add(cmd);
@@ -1120,7 +1340,7 @@ class Parser {
     oper init(String contents, int lineNum) : toker(contents, lineNum) {}
     oper init(String contents) : toker(contents, 1) {}
 
-    ## Parse a block.  If 'topLevel', expect an EOF terminator, otherwise 
+    ## Parse a block.  If 'topLevel', expect an EOF terminator, otherwise
     ## expect a right bracket (']').
     Block parseBlock(bool topLevel) {
         while (true) {
@@ -1159,10 +1379,10 @@ class Parser {
 
         # Add the last command.
         context.endCommand();
-        result := context.block;     
+        result := context.block;
         return result;
     }
-    
+
     Block parse() {
         return parseBlock(true);
     }
@@ -1196,6 +1416,8 @@ EvalContext createRootContext() {
     ctx.define('*', MulCmd());
     ctx.define('/', DivCmd());
     ctx.define('%', ModCmd());
+    ctx.define('==', EqualCmd());
+    ctx.define('!=', NotEqualCmd());
     return ctx;
 }
 
@@ -1219,4 +1441,3 @@ Object eval(String expr, EvalContext context) {
 }
 
 Object eval(String expr) { return eval(expr, null); }
-

@@ -24,3 +24,17 @@ result := ev(I"
 @assert(result == 'test string\ntest string\n');
 cerr `ok\n`;
 
+@assert(ev(I"import [stdlib] doc; doc $doc") ==
+        ' Returns the doc string for a value.\n');
+
+@assert(ev(I"\
+    import [stdlib] doc lookUp
+    var x 100 'variable documentation'
+    doc [lookUp x]
+    ") == 'variable documentation');
+
+@assert(ev(I"\
+    import [stdlib] doc lookUp
+    def f {} 'function documentation' { print foo }
+    doc [lookUp f]
+    ") == 'function documentation');

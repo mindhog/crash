@@ -90,6 +90,13 @@ root.defineConverter(Foo, wrapFoo);
 @assert(eval('var f [Foo]; f method', root) == 'ok');
 @assert(eval('[Foo] method', root) == 'ok');
 
+## Doc line 1
+## Doc line 2
+@function int withDocs() { return 0 }
+@assert(withDocs().getDoc() == ' Doc line 1\012 Doc line 2\012');
+
+@assert(makeFoo().getDoc() == '');
+
 cout `ok\n`;
 
 
