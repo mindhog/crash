@@ -8,7 +8,7 @@ import crack.lang AppendBuffer, Exception;
 import crack.regex Regex;
 import crack.strutil split;
 import .crash createRootContext, eval, Builtin, EvalContext, Obj, Value;
-import .types IntObj;
+import .types BoolObj, IntObj;
 
 @import .ann function;
 
@@ -141,6 +141,11 @@ class LookUpCmd : Builtin {
     }
 }
 
+## Returns true if the specified file exists.
+@function bool exists(String filename) {
+    return makePath(filename).exists();
+}
+
 ## Returns a module object for the standard library.
 ##
 ## Functions defined are:
@@ -148,11 +153,13 @@ class LookUpCmd : Builtin {
 ##  doc
 ##  help [command...]
 ##  lookUp <name>
+##  exists <filename>
 @function Obj stdlib() {
     obj := Obj();
     obj.define('open', open());
     obj.define('doc', doc());
     obj.define('help', HelpCmd());
     obj.define('lookUp', LookUpCmd());
+    obj.define('exists', exists());
     return obj;
 }

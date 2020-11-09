@@ -3,6 +3,7 @@ import crack.io cout, cerr;
 import crack.lang Exception;
 import crash createRootContext, eval, parseString;
 import stdlib stdlib;
+import types BoolObj;
 
 @import crack.ann assert;
 
@@ -23,6 +24,21 @@ result := ev(I"
     ");
 @assert(result == 'test string\ntest string\n');
 cerr `ok\n`;
+
+result = ev(I"
+    import [stdlib] open exists
+    [open /tmp/testfile2.dat w] write 'some data'
+    var result [exists /tmp/testfile2.dat]
+    proc rm /tmp/testfile2.dat
+    give $result
+    ");
+@assert(result == BoolObj(true));
+
+result = ev(I"
+    import [stdlib] exists
+    exists /tmp/testfile2.dat
+    ");
+@assert(result == BoolObj(false));
 
 @assert(ev(I"import [stdlib] doc; doc $doc") ==
         ' Returns the doc string for a value.\n');
