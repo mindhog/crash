@@ -15,6 +15,7 @@
 ## Container library.
 
 import crack.cont.array Array;
+import crack.cont.treemap TreeMap;
 import crack.io FStr;
 import crack.lang Exception;
 import .crash parseBlockArg, parseString, Block, Builtin, EvalContext, Obj,
@@ -258,6 +259,7 @@ Obj wrapIterator(Iter iter) {
     result := ObjOf[Iter](iter);
     result.define('elem', elem(iter));
     result.define('next', next(iter));
+    result.define('count', count(iter));
     result.define('each', EachCmd(iter));
     result.define('map', MapCmd(iter));
     result.define('filter', FilterCmd(iter));
@@ -308,9 +310,102 @@ class ArrayCmd : Builtin {
     return makeArrayObj(result);
 }
 
+alias ObjectMap = TreeMap[Object, Object];
+alias ObjectMapNode = ObjectMap.Node;
+alias ObjectMapIter = ObjectMap.Iter;
+
+@function(ObjectMapNode) Object MapItem_key() {
+    return self.key;
+}
+
+@function(ObjectMapNode) Object MapItem_val() {
+    return self.val;
+}
+
+Obj makeItemObj(ObjectMapNode node) {
+    result := ObjOf[ObjectMapNode](node);
+    result.define('key', MapItem_key(node));
+    result.define('val', MapItem_val(node));
+    return result;
+}
+
+class MapObjIter : Iter {
+    @cvars {
+        ObjectMapIter __iter;
+    }
+    Object elem() { return makeItemObj(__iter.elem()) }
+    bool next() { return __iter.next() }
+    bool isTrue() { return __iter.isTrue() }
+}
+
+## Returns an iterator over the elements of a map.
+@function(ObjectMap) Obj Map_iter() {
+    return wrapIterator(MapObjIter(self.iter()));
+}
+
+## Returns the number of items in the map.
+## map count
+@function(ObjectMap) int Map_count() {
+    return self.count();
+}
+
+## Returns the element referenced by the given key.
+## map get <key>
+@function(ObjectMap) Object Map_get(Object key) {
+    return self.get(key);
+}
+
+## Put a new key/value pair into the map:
+## map put <key> <val>
+@function(ObjectMap) Object Map_put(Object key, Object val) {
+    self[key] = val;
+    return val;
+}
+
+Obj makeMapObj(ObjectMap map) {
+    result := ObjOf[ObjectMap](map);
+    result.define('iter', Map_iter(map));
+    result.define('count', Map_count(map));
+    result.define('get', Map_get(map));
+    result.define('put', Map_put(map));
+    return result;
+}
+
+## The "map" command in global scope creates a TreeMap object.
+class MapConstructorCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns a new tree-map with the arguments as key value pairs:
+            map <key> <val> ...
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() % 2)
+            throw Exception('"map" requires key value pairs (arg count '
+                            'is not divisible by two)');
+
+        result := ObjectMap();
+
+        # Use 'this' as a sentinel.
+        Object key = this;
+        for (arg :in args) {
+            if (key is this) {
+                key = arg;
+            } else {
+                result[key] = arg;
+                key = this;
+            }
+        }
+
+        return makeMapObj(result);
+    }
+}
+
 @function Obj collections() {
     result := Obj();
     result.define('array', ArrayCmd());
     result.define('arrayOf', arrayOf());
+    result.define('map', MapConstructorCmd());
     return result;
 }
