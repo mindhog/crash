@@ -17,15 +17,15 @@ import crack.cont.hashmap HashMap;
 import crack.io cin, cerr, readAll, FStr;
 import crack.lang Exception;
 
-import .ast Expr, List, FloatLiteral, FuncCall, IfStmt, IntegerLiteral, Node,
-    SrcLoc, StaticList, StringLiteral, VarDef;
-import .crash eval, Block, Command, CrashError, EvalContext, InterpExpr,
-    LiteralStringTerm, SimpleValue, V1SrcLoc = SrcLoc, Term, VarRef,
-    V1StringLiteral = StringLiteral, Value;
+import .ast Expr, FuncDef, List, FloatLiteral, FuncCall, IfStmt,
+    IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral, VarDef;
+import .crash eval, ActiveFunc, Block, Command, CrashError, EvalContext,
+    InterpExpr, LiteralStringTerm, SimpleValue, V1SrcLoc = SrcLoc, Term,
+    VarRef, V1StringLiteral = StringLiteral, Value;
 import .parser parseString;
 import .types IntObj, FloatObj;
 
-@import crack.ann impl, interface, SCOPE_NAME;
+@import crack.ann cvars, impl, interface, SCOPE_NAME;
 
 @interface ExprWrapper {
     @abstract Value asValue();
@@ -41,15 +41,23 @@ class BlockExprWrapper @impl ExprWrapper  {
     Object evaluate() { return eval(block) }
 }
 
+# Returns an object that converts a non-term Value to a Term
+class ValueTerm : Term {
+    @cvars {
+        Value __value;
+    }
+    Object evaluate(EvalContext ctx) { return __value.evaluate(ctx) }
+    V1SrcLoc getSrcLoc() { return __value.getSrcLoc() }
+}
+
 class ValueExprWrapper @impl ExprWrapper {
     Value value;
     oper init(Value value) : value = value {}
     Value asValue() { return value }
     Term asTerm() {
-        block := Block();
-        block.add(value);
-        return InterpExpr(block);
+        return ValueTerm(value);
     }
+
     Object evaluate() {
         block := Block();
         block.add(value);
@@ -163,19 +171,46 @@ class VarRefValue : LimitedValue {
     }
 }
 
+class FuncDefValue : LimitedValue {
+    String name;
+    Array[String] parms;
+    String docs;
+    Block body;
+
+    oper init(V1SrcLoc loc, String name, Array[String] parms, String docs,
+              Block body
+              ) :
+        LimitedValue(loc),
+        name = name,
+        parms = parms,
+        docs = docs,
+        body = body {
+    }
+
+    Object evaluate(EvalContext context) {
+        result := ActiveFunc(name, context.frame.vars, parms, body, docs);
+        context.define(name, result);
+        return result;
+    }
+}
+
+@interface Converter {
+    @abstract ExprWrapper convert(Node node);
+}
+
 @abstract class Def {
     String name;
 
     oper init(String name) : name = name {}
 
     ## Return a value representing the invocation of a definition.
-    @abstract Value makeValue(FuncCall funcCall);
+    @abstract Value makeValue(Converter conv, FuncCall funcCall);
 }
 
 class Variable : Def {
     oper init(String name) : Def(name) {}
 
-    Value makeValue(FuncCall funcCall) {
+    Value makeValue(Converter conv, FuncCall funcCall) {
         if (funcCall.args)
             throw Exception(
                 FStr() I`$(funcCall.loc): Variable definitions accept no \
@@ -186,7 +221,23 @@ class Variable : Def {
     }
 }
 
-class CompileContext {
+class Function : Def {
+    oper init(String name) : Def(name) {}
+
+    Value makeValue(Converter conv, FuncCall funcCall) {
+        # XXX this isn't right, I think this needs to return a Command
+        # instance corresponding to the FuncCall.
+        result := Command(LiteralStringTerm(name,
+                                            V1SrcLoc(funcCall.loc.getRow())
+                                            )
+                          );
+        for (arg :in funcCall.args)
+            result.args.append(conv.convert(arg).asTerm());
+        return result;
+    }
+}
+
+class CompileContext @impl Converter {
     class Frame : HashMap[String, Def] {
         Frame parent;
         oper init(Frame parent) : parent = parent {}
@@ -239,8 +290,6 @@ class CompileContext {
 
     void define(Def def) { topFrame[def.name] = def }
 
-    ExprWrapper convert(Node node);
-
     Block _convertBlock(List list ) {
             block := Block();
             for (command :in list.getElements())
@@ -256,8 +305,6 @@ class CompileContext {
             return LiteralObjectWrapper(block, V1SrcLoc(list.loc.getRow()));
         } else if (list := List.cast(node, null)) {
             block := _convertBlock(list);
-            for (command :in list.getElements())
-                block.add(convert(command).asValue());
             return BlockExprWrapper(block);
         } else if (strlit := StringLiteral.cast(node, null)) {
             return LiteralObjectWrapper(strlit.contents,
@@ -280,14 +327,15 @@ class CompileContext {
         } else if (fc := FuncCall.cast(node, null)) {
             if (def := lookUp(fc.func.text))
                 # We've got a definition.
-                return ValueExprWrapper(def.makeValue(fc));
+                return ValueExprWrapper(def.makeValue(this, fc));
 
             # Fall through to the old-style weirdness.  This can go away
             # once all names start out in the compile context.
+            # XXX This is broken for variable lookups.
             cmdTerm := VarRef(V1StringLiteral(fc.func.text,
-                                            V1SrcLoc(fc.loc.getRow())
-                                            )
-                            );
+                                                V1SrcLoc(fc.loc.getRow())
+                                                )
+                                );
             cmd := Command(cmdTerm);
             for (arg :in fc.args)
                 cmd.args.append(convert(arg).asTerm());
@@ -302,6 +350,26 @@ class CompileContext {
                                         null
                             )
             );
+        } else if (fd := FuncDef.cast(node, null)) {
+            define(Function(fd.name.text));
+            parms := Array[String]();
+            pushFrame();
+            for (parm :in fd.args) {
+                parms.append(parm.name.text);
+                define(Variable(parm.name.text));
+            }
+            body := _convertBlock(fd.body);
+
+            result := ValueExprWrapper(FuncDefValue(V1SrcLoc(fd.loc.getRow()),
+                                                 fd.name.text,
+                                                 parms,
+                                                 null, // docs
+                                                 body
+                                                 )
+                                    );
+            popFrame();
+            return result;
+
         } else {
             throw Exception(FStr() `Unknown AST node type: $(node.class.name)`);
         }
@@ -319,3 +387,4 @@ if (@SCOPE_NAME == '.main') {
         cerr `Got an exception: $ex\n`;
     }
 }
+

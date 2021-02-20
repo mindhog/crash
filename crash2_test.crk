@@ -28,4 +28,7 @@ Object eval(String script) {
 @assert(eval("x : String = 'ok'; x") == 'ok');
 @assert(eval("x := 0; if x { 'bad' } else { 'ok' }") == 'ok');
 @assert(eval("x := 1; if x { 'ok' } else { 'bad' }") == 'ok');
+@assert(eval("
+    func f(arg: String) : String { arg }
+    f('ok')") == 'ok');
 cerr `ok\n`;
