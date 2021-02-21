@@ -14,15 +14,17 @@
 
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-import crack.io cin, cerr, readAll, FStr;
+import crack.fs makePath;
+import crack.io cin, cout, cerr, readAll, FStr;
 import crack.lang Exception;
 
 import .ast Expr, FuncDef, List, FloatLiteral, FuncCall, IfStmt,
     IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral, VarDef;
-import .crash eval, ActiveFunc, Block, Command, CrashError, EvalContext,
-    InterpExpr, LiteralStringTerm, SimpleValue, V1SrcLoc = SrcLoc, Term,
-    VarRef, V1StringLiteral = StringLiteral, Value;
+import .crash createRootContext, eval, ActiveFunc, Block, Command, CrashError,
+    EvalContext, InterpExpr, LiteralStringTerm, SimpleValue,
+    V1SrcLoc = SrcLoc, Term, VarRef, V1StringLiteral = StringLiteral, Value;
 import .parser parseString;
+import .repl REPLBase;
 import .types IntObj, FloatObj;
 
 @import crack.ann cvars, impl, interface, SCOPE_NAME;
@@ -30,7 +32,7 @@ import .types IntObj, FloatObj;
 @interface ExprWrapper {
     @abstract Value asValue();
     @abstract Term asTerm();
-    @abstract Object evaluate();
+    @abstract Object evaluate(EvalContext ctx);
 }
 
 class BlockExprWrapper @impl ExprWrapper  {
@@ -38,7 +40,7 @@ class BlockExprWrapper @impl ExprWrapper  {
     oper init(Block block) : block = block {}
     Value asValue() { return SimpleValue(block) }
     Term asTerm() { return InterpExpr(block) }
-    Object evaluate() { return eval(block) }
+    Object evaluate(EvalContext ctx) { return eval(block, ctx) }
 }
 
 # Returns an object that converts a non-term Value to a Term
@@ -58,10 +60,10 @@ class ValueExprWrapper @impl ExprWrapper {
         return ValueTerm(value);
     }
 
-    Object evaluate() {
+    Object evaluate(EvalContext ctx) {
         block := Block();
         block.add(value);
-        return eval(block);
+        return eval(block, ctx);
     }
 }
 
@@ -79,7 +81,7 @@ class LiteralObjectWrapper @impl ExprWrapper {
     oper init(Object val, V1SrcLoc loc) : val = val, loc = loc {}
     Value asValue() { return SimpleValue(val) }
     Term asTerm() { return LiteralObjectTerm(val, loc) }
-    Object evaluate() { return val }
+    Object evaluate(EvalContext ctx) { return val }
 }
 
 @abstract class LimitedValue : Value {
@@ -380,11 +382,27 @@ ExprWrapper convert(Node node) {
     return CompileContext().convert(node);
 }
 
-if (@SCOPE_NAME == '.main') {
-    try {
-        convert(parseString(readAll(cin))).evaluate();
-    } catch (CrashError ex) {
-        cerr `Got an exception: $ex\n`;
+class Crash2REPL : REPLBase {
+    EvalContext rootCtx = createRootContext();
+    CompileContext compileCtx = CompileContext();
+
+    bool addInput(String inputData) {
+        cout `$(convert(parseString(inputData)).evaluate(rootCtx))\n`;
+        return true;
     }
 }
 
+if (@SCOPE_NAME == '.main') {
+    import crack.sys argv;
+    import .stdlib stdlib;
+    import .collections collections;
+    repl := Crash2REPL();
+    repl.rootCtx.define('stdlib', stdlib());
+    repl.rootCtx.define('collections', collections());
+    if (argv.count() > 1) {
+        convert(parseString(makePath(argv[1]).readAll()))
+            .evaluate(repl.rootCtx);
+    } else {
+        repl.run();
+    }
+}

@@ -13,13 +13,14 @@
 # limitations under the License.
 
 import crack.io cerr;
+import .crash EvalContext;
 import .crash2 convert;
 import .parser parseString;
 
 @import crack.ann assert;
 
 Object eval(String script) {
-    return convert(parseString(script)).evaluate();
+    return convert(parseString(script)).evaluate(EvalContext());
 }
 
 @assert(eval("if 1 { 'ok' }") == 'ok');

@@ -54,3 +54,33 @@ void repl() {
     repl(root);
 
 }
+
+## Abstract base class to allow implementing a REPL for a specific parser
+## implementation.
+@abstract class REPLBase {
+
+    ## Add user input to the parser.  Returns true if the input is "complete"
+    ## (i.e. not part of a multi-line command) and false if not, which will
+    ## result in a different prompt.
+    @abstract bool addInput(String inputData);
+
+    ## Run the repl until the user enters an end-of-file.
+    void run() {
+        initialize();
+
+        bool useInitialPrompt = true;
+        while (true) {
+            raw := readline(useInitialPrompt ? '$ '.buffer : '> '.buffer);
+
+            if (raw is null)
+                return;
+            add_history(raw);
+
+            try {
+                useInitialPrompt = addInput(String(raw, strlen(raw), true));
+            } catch (Exception ex) {
+                cerr `Got an exception: $ex\n`;
+            }
+        }
+    }
+}
