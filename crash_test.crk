@@ -145,6 +145,11 @@ try {
     tm echo 'test data'
 ") == 'test data');
 
+@assert(eval("
+    source testmod.crash
+    echo 'test data'
+") == 'test data');
+
 @assert(eval("+ 1") == IntObj(1));
 @assert(eval("+ 4 5 6") == IntObj(15));
 @assert(eval("+ 0") == IntObj(0));
