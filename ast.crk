@@ -16,7 +16,7 @@
 
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-import crack.io Formatter;
+import crack.io Formatter, FStr;
 import crack.lang cmp;
 
 class SrcLoc;
@@ -227,31 +227,94 @@ class ForStmt : Expr {
     }
 }
 
+## Type specifier.
+class TypeSpec : Expr {
+    oper init(SrcLoc loc) : Expr(loc) {}
+}
+
+## A named type.  This can be a simple variable name or
+class NominalType : TypeSpec {
+    Ident name;
+
+    oper init(SrcLoc loc, Ident name) : TypeSpec(loc), name = name {}
+
+    void formatTo(Formatter out) {
+        out `$name`;
+    }
+}
+
+## A type inferred from the type of an expression.
+class InferredType : TypeSpec {
+    Expr expr;
+
+    oper init(SrcLoc loc, Expr expr) : TypeSpec(loc), expr = expr {}
+
+    void formatTo(Formatter out) {
+        out `@typeof($expr)`;
+    }
+}
+
 class VarDef : Expr {
 
     ## Name of the variable to assign.
     Ident name;
 
-    ## Name of the type.  Nullable.
-    ## TODO: Types need their own AST.
-    Ident typeName;
+    ## Variable type.  Nullable, if null the type is inferred from the
+    ## initializer.
+    TypeSpec type;
 
     ## Initializer expression for the variable.
     ## Nullable.
     Expr initializer;
 
-    oper init(SrcLoc loc, Ident name, Ident typeName, Expr initializer) :
+    oper init(SrcLoc loc, Ident name, TypeSpec type, Expr initializer) :
         Expr(loc),
         name = name,
-        typeName = typeName,
+        type = type,
         initializer = initializer {
     }
 
     void formatTo(Formatter out) {
         out `$name :`;
-        if (typeName)
-            out ` $typeName$(initializer ? ' ' : '')`;
+        if (type)
+            out ` $type$(initializer ? ' ' : '')`;
         if (initializer)
             out `= $initializer`;
+    }
+}
+
+String str(Object obj) {
+    return FStr() `$obj`;
+}
+
+class FuncDef : Expr {
+
+    ## Function name (may be null for an anonymous function).
+    Ident name;
+
+    ## Argument list.
+    Array[VarDef] args;
+
+    ## Return type, may be null indicating that the return type was not
+    ## specified and may be inferred.
+    TypeSpec returnType;
+
+    StaticList body;
+
+    oper init(SrcLoc loc, Ident name, Array[VarDef] args, TypeSpec returnType,
+              StaticList body
+              ) :
+        Expr(loc),
+        name = name,
+        args = args,
+        returnType = returnType,
+        body = body {
+    }
+
+    void formatTo(Formatter out) {
+        out `func $(name ? str(name) : '')(`;
+        for (arg :in args)
+            out `$arg,`;
+        out `)$(returnType ? ' : ' + str(returnType) : '') $body`;
     }
 }

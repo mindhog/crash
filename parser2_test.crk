@@ -30,5 +30,14 @@ String str(Object obj) { return FStr() `$obj` }
 @assert(str(parseString("x : foo = 100")) == "x : foo = 100;");
 @assert(str(parseString("x := 100")) == "x := 100;");
 @assert(str(parseString("x : foo")) == "x : foo;");
+@assert(str(parseString("func foo(x: String) : String { 'test' }")) ==
+        "func foo(x : String,) : String {'test';};");
+@assert(str(parseString("func foo() : String { 'test' }")) ==
+        "func foo() : String {'test';};");
+@assert(str(parseString("func foo(x: String) { 'test' }")) ==
+        "func foo(x : String,) {'test';};");
+@assert(str(parseString("func(x: String) { 'test' }")) ==
+        "func (x : String,) {'test';};");
 
 cerr `ok\n`;
+

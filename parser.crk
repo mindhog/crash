@@ -18,8 +18,9 @@ import crack.io cerr, Formatter, FStr;
 import crack.lang AppendBuffer, CString, Exception;
 import crack.runtime atof;
 
-import .ast DynamicList, Expr, FloatLiteral, FuncCall, Ident, IfStmt,
-    IntegerLiteral, List, Node, SrcLoc, StaticList, StringLiteral, VarDef;
+import .ast DynamicList, Expr, FloatLiteral, FuncCall, FuncDef, 
+    Ident, IfStmt, IntegerLiteral, List, Node, NominalType, SrcLoc, 
+    StaticList, StringLiteral, TypeSpec, VarDef;
 import .floats parseFloat;
 
 const int
@@ -34,7 +35,9 @@ const int
     TOK_LCURLY = 8,
     TOK_RCURLY = 9,
     TOK_COLON = 10,
-    TOK_ASSIGN = 11;
+    TOK_ASSIGN = 11,
+    TOK_COMMA = 12,
+    TOK_DOT = 13;
 
 class Token {
     int type;
@@ -61,6 +64,8 @@ class Token {
 
     bool isAssign() { return type == TOK_ASSIGN }
     bool isColon() { return type == TOK_COLON }
+    bool isComma() { return type == TOK_COMMA }
+    bool isDot() { return type == TOK_DOT }
     bool isEOF() { return type == TOK_EOF }
     bool isFloat() { return type == TOK_FLOAT }
     bool isIdent() { return type == TOK_IDENT }
@@ -181,10 +186,14 @@ class Toker {
                     return __makeTok(TOK_COLON, String(1, ch));
                 } else if (ch == b'=') {
                     return __makeTok(TOK_ASSIGN, String(1, ch));
+                } else if (ch == b',') {
+                    return __makeTok(TOK_COMMA, String(1, ch));
                 } else if (ch == b"'") {
                     state = LIT_STR;
                 } else if (ch == b'#') {
                     state = COMMENT;
+                } else if (ch == b'.') {
+                    return __makeTok(TOK_DOT, String(1, ch));
                 } else if (ch >= b'A' && ch <= b'Z' ||
                            ch >= b'a' && ch <= b'z' ||
                            ch == b'_') {
@@ -398,6 +407,17 @@ class Parser {
         return FuncCall(ident.getSrcLoc(), name, args);
     }
 
+    TypeSpec parseTypeSpec() {
+        # TODO: deal with complex type expressions.
+        tok := getToken();
+        if (!tok.isIdent())
+            throw ParseError(FStr() I`Expected type name or assignment \
+                                      operator after colon, got $tok`
+                             );
+
+        return NominalType(tok.getSrcLoc(), makeIdent(tok));
+    }
+
     ## var_def ::= ident ':' type '=' expr
     ##         |   ident ':' '=' expr
     ##         |   ident ':' type
@@ -408,17 +428,12 @@ class Parser {
         if (tok.isAssign())
             return VarDef(ident.getSrcLoc(), id, null, parseExpr(true));
 
-        # TODO: deal with complex type expressions.
-        if (!tok.isIdent())
-            throw ParseError(FStr() I`Expected type name or assignment \
-                                      operator after colon, got $tok`
-                             );
-
-        type := makeIdent(tok);
+        putBack(tok);
+        type := parseTypeSpec();
         tok = getToken();
         if (!tok.isAssign()) {
             putBack(tok);
-            return VarDef(ident.getSrcLoc(), makeIdent(ident), type,
+            return VarDef(ident.getSrcLoc(), makeIdent(ident), type, 
                           null
                           );
         }
@@ -426,16 +441,68 @@ class Parser {
         return VarDef(ident.getSrcLoc(), makeIdent(ident), type, parseExpr(true));
     }
 
+    ## func_def ::= 'func' ident '(' arg_list ')' ':' type_spec static_list
+    ##          |   'func' ident '(' arg_list ')' static_list
+    ##          |   'func' '(' arg_list ')' static_list
+    FuncDef parseFuncDef(Token ident) {
+        srcLoc := ident.getSrcLoc();
+        tok := getToken();
+        Ident name;
+        if (tok.isIdent()) {
+            name = makeIdent(tok);
+            tok = getToken();
+        }
+
+        if (!tok.isLParen())
+            throw ParseError(FStr() `Argument list expected, got $tok`);
+
+        # Parse the argument list.
+        args := Array[VarDef]();
+        tok = getToken();
+        while (!tok.isRParen()) {
+            if (tok.isIdent()) {
+                tok2 := getToken();
+                if (!tok2.isColon())
+                    throw ParseError(
+                        FStr() `Expected colon after argument name, got $tok`
+                    );
+                args.append(parseVarDef(tok));
+            }
+            tok = getToken();
+            if (!tok.isRParen() && !tok.isComma())
+                throw ParseError(
+                    FStr() `Comma or end paren expected, got $tok`
+                );
+        }
+
+        # Check for a return type.
+        tok = getToken();
+        TypeSpec returnType;
+        if (tok.isColon()) {
+            returnType = parseTypeSpec();
+            tok = getToken();
+        }
+
+        # Parse the body.
+        if (!tok.isLCurly())
+            throw ParseError(FStr() `Static list expected, got $tok`);
+        body := parseStaticList(tok.getSrcLoc());
+
+        return FuncDef(srcLoc, name, args, returnType, body);
+    }
+
     Expr parseExpr(bool longFuncCalls) {
         tok := getToken();
         if (tok.isIdent()) {
+
+            # Check for a function definition.
+            if (tok.isIdent('func'))
+                return parseFuncDef(tok);
 
             # First check for variable definitions/assignments.
             tok2 := getToken();
             if (tok2.isColon()) {
                 return parseVarDef(tok);
-#            } else if (tok2.isAssign()) {
-#                return Assign(tok.getSrcLoc(), tok.text, parseExpr(true));
             }
 
             putBack(tok2);
@@ -545,4 +612,3 @@ class Parser {
 Node parseString(String text) {
     return Parser(Toker(text, 1)).parse();
 }
-
