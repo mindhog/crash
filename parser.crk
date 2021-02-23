@@ -18,9 +18,9 @@ import crack.io cerr, Formatter, FStr;
 import crack.lang AppendBuffer, CString, Exception;
 import crack.runtime atof;
 
-import .ast DynamicList, Expr, FloatLiteral, FuncCall, FuncDef, 
+import .ast DynamicList, Expr, FieldRef, FloatLiteral, FuncCall, FuncDef,
     Ident, IfStmt, IntegerLiteral, List, Node, NominalType, SrcLoc, 
-    StaticList, StringLiteral, TypeSpec, VarDef;
+    StaticList, StringLiteral, TypeSpec, VarDef, VarRef;
 import .floats parseFloat;
 
 const int
@@ -78,7 +78,8 @@ class Token {
     bool isSemi() { return type == TOK_SEMI }
     bool isStrLit() { return type == TOK_STRLIT }
     bool isTerminator() {
-        return type == TOK_EOF || type == TOK_RCURLY || type == TOK_RPAREN;
+        return type == TOK_EOF || type == TOK_RCURLY || type == TOK_RPAREN ||
+            type == TOK_DOT;
     }
 }
 
@@ -394,9 +395,8 @@ class Parser {
     DynamicList parseDynamicList(SrcLoc loc);
     Expr parseStatement();
 
-    FuncCall parseFuncCall(Token ident) {
-        name := makeIdent(ident);
-        tok := getToken();
+    Array[Expr] parseArgList() {
+        Token tok;
         args := Array[Expr]();
         while (!(tok = getToken()).isTerminator() && !tok.isSemi()) {
             putBack(tok);
@@ -404,7 +404,7 @@ class Parser {
         }
         if (!tok.isSemi())
             putBack(tok);
-        return FuncCall(ident.getSrcLoc(), name, args);
+        return args;
     }
 
     TypeSpec parseTypeSpec() {
@@ -491,7 +491,7 @@ class Parser {
         return FuncDef(srcLoc, name, args, returnType, body);
     }
 
-    Expr parseExpr(bool longFuncCalls) {
+    Expr parsePrimary(bool longFuncCalls) {
         tok := getToken();
         if (tok.isIdent()) {
 
@@ -508,11 +508,11 @@ class Parser {
             putBack(tok2);
 
             if (longFuncCalls) {
-                putBack(tok);
-                return parseFuncCall(tok);
+                return FuncCall(tok.getSrcLoc(),
+                                VarRef(tok.getSrcLoc(), makeIdent(tok)),
+                                parseArgList());
             } else {
-                loc := tok.getSrcLoc();
-                return FuncCall(loc, makeIdent(tok), Array[Expr]());
+                return VarRef(tok.getSrcLoc(), makeIdent(tok));
             }
         } else if (tok.isStrLit()) {
             return StringLiteral(tok.getSrcLoc(), tok.text);
@@ -527,6 +527,26 @@ class Parser {
         } else {
             throw ParseError(FStr() `Unexpected token: $tok`);
         }
+    }
+
+    Expr parseExpr(bool longFuncCalls) {
+        expr := parsePrimary(longFuncCalls);
+        while (true) {
+            tok := getToken();
+            if (tok.isDot()) {
+                tok = getToken();
+                if (!tok.isIdent())
+                    throw ParseError('Identifier expected in field reference');
+
+                fieldRef := FieldRef(expr.loc, expr, makeIdent(tok));
+                args := parseArgList();
+                return FuncCall(fieldRef.loc, fieldRef, args);
+            } else {
+                putBack(tok);
+                break;
+            }
+        }
+        return expr;
     }
 
     IfStmt parseIfStmt(Token ident) {

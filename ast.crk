@@ -97,10 +97,10 @@ class Expr : Node {
 }
 
 class FuncCall : Expr {
-    Ident func;
+    Expr func;
     Array[Expr] args;
 
-    oper init(SrcLoc loc, Ident func, Array[Expr] args) :
+    oper init(SrcLoc loc, Expr func, Array[Expr] args) :
         Expr(loc),
         func = func,
         args = args {
@@ -110,6 +110,33 @@ class FuncCall : Expr {
         out `$func`;
         for (arg :in args)
             out ` $arg`;
+    }
+}
+
+## Variable reference.
+class VarRef : Expr {
+    Ident var;
+
+    oper init(SrcLoc loc, Ident var) : Expr(loc), var = var {}
+
+    void formatTo(Formatter out) {
+        out `$var`;
+    }
+}
+
+## A field reference.
+class FieldRef : Expr {
+    Expr primary;
+    Ident field;
+
+    oper init(SrcLoc loc, Expr primary, Ident field) :
+        Expr(loc),
+        primary = primary,
+        field = field {
+    }
+
+    void formatTo(Formatter out) {
+        out `($primary).$field`;
     }
 }
 

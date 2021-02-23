@@ -38,6 +38,8 @@ String str(Object obj) { return FStr() `$obj` }
         "func foo(x : String,) {'test';};");
 @assert(str(parseString("func(x: String) { 'test' }")) ==
         "func (x : String,) {'test';};");
+@assert(str(parseString("foo.bar")) == '(foo).bar;');
+@assert(str(parseString("foo.bar baz.bar")) == '(foo).bar (baz).bar;');
 
 cerr `ok\n`;
 

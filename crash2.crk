@@ -18,11 +18,12 @@ import crack.fs makePath;
 import crack.io cin, cout, cerr, readAll, FStr;
 import crack.lang Exception;
 
-import .ast Expr, FuncDef, List, FloatLiteral, FuncCall, IfStmt,
-    IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral, VarDef;
+import .ast Expr, FieldRef, FuncDef, List, FloatLiteral, FuncCall, IfStmt,
+    IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral, VarDef, VarRef;
 import .crash createRootContext, eval, ActiveFunc, Block, Command, CrashError,
     EvalContext, InterpExpr, LiteralStringTerm, SimpleValue,
-    V1SrcLoc = SrcLoc, Term, VarRef, V1StringLiteral = StringLiteral, Value;
+    V1SrcLoc = SrcLoc, Term, V1VarRef = VarRef,
+    V1StringLiteral = StringLiteral, Value;
 import .parser parseString;
 import .repl REPLBase;
 import .types IntObj, FloatObj;
@@ -200,33 +201,13 @@ class FuncDefValue : LimitedValue {
     @abstract ExprWrapper convert(Node node);
 }
 
-@abstract class Def {
+class Def {
     String name;
 
     oper init(String name) : name = name {}
 
     ## Return a value representing the invocation of a definition.
-    @abstract Value makeValue(Converter conv, FuncCall funcCall);
-}
-
-class Variable : Def {
-    oper init(String name) : Def(name) {}
-
-    Value makeValue(Converter conv, FuncCall funcCall) {
-        if (funcCall.args)
-            throw Exception(
-                FStr() I`$(funcCall.loc): Variable definitions accept no \
-                         arguments.`
-            );
-
-        return VarRefValue(V1SrcLoc(funcCall.loc.getRow()), name);
-    }
-}
-
-class Function : Def {
-    oper init(String name) : Def(name) {}
-
-    Value makeValue(Converter conv, FuncCall funcCall) {
+    Value makeFuncCall(Converter conv, FuncCall funcCall) {
         # XXX this isn't right, I think this needs to return a Command
         # instance corresponding to the FuncCall.
         result := Command(LiteralStringTerm(name,
@@ -236,6 +217,10 @@ class Function : Def {
         for (arg :in funcCall.args)
             result.args.append(conv.convert(arg).asTerm());
         return result;
+    }
+
+    Value makeVarRef(V1SrcLoc loc) {
+        return VarRefValue(loc, name);
     }
 }
 
@@ -326,24 +311,43 @@ class CompileContext @impl Converter {
             onFalse := stmt.onFalse ? InterpExpr(_convertBlock(stmt.onFalse)) : null;
             cmd := IfStmtValue(V1SrcLoc(stmt.loc.getRow()), cond, onTrue, onFalse);
             return ValueExprWrapper(cmd);
-        } else if (fc := FuncCall.cast(node, null)) {
-            if (def := lookUp(fc.func.text))
-                # We've got a definition.
-                return ValueExprWrapper(def.makeValue(this, fc));
+        } else if (vr := VarRef.cast(node, null)) {
+            if (def := lookUp(vr.var.text))
+                return ValueExprWrapper(
+                    def.makeVarRef(V1SrcLoc(vr.loc.getRow()))
+                );
 
-            # Fall through to the old-style weirdness.  This can go away
-            # once all names start out in the compile context.
-            # XXX This is broken for variable lookups.
-            cmdTerm := VarRef(V1StringLiteral(fc.func.text,
-                                                V1SrcLoc(fc.loc.getRow())
-                                                )
-                                );
-            cmd := Command(cmdTerm);
+            # Fall through to the old-style.
+            # XXX here and below we should probably just give a parse error.
+            # If we're in crash2 mode, we should be static definitions.
+            return ValueExprWrapper(
+                VarRefValue(V1SrcLoc(vr.loc.getRow()), vr.var.text)
+            );
+        } else if (fc := FuncCall.cast(node, null)) {
+            Command cmd;
+            if (vr := VarRef.cast(fc.func, null)) {
+                if (def := lookUp(vr.var.text))
+                    # We've got a definition.  Just convert to a function call.
+                    return ValueExprWrapper(def.makeFuncCall(this, fc));
+
+                # Handle functions that are not statically defined.
+                cmdTerm := V1VarRef(V1StringLiteral(vr.var.text,
+                                                    V1SrcLoc(fc.loc.getRow())
+                                                    )
+                                    );
+                cmd = Command(cmdTerm);
+            } else {
+                # Extract the reference and use this as the initial command.
+                # There may be more arguments, these will be added to what we
+                # have got already.
+                cmd = Command.cast(convert(fc.func).asValue());
+            }
+
             for (arg :in fc.args)
                 cmd.args.append(convert(arg).asTerm());
             return ValueExprWrapper(cmd);
         } else if (vd := VarDef.cast(node, null)) {
-            define(Variable(vd.name.text));
+            define(Def(vd.name.text));
             return ValueExprWrapper(
                 VarDefValue(V1SrcLoc(vd.loc.getRow()),
                                     vd.name.text,
@@ -353,12 +357,12 @@ class CompileContext @impl Converter {
                             )
             );
         } else if (fd := FuncDef.cast(node, null)) {
-            define(Function(fd.name.text));
+            define(Def(fd.name.text));
             parms := Array[String]();
             pushFrame();
             for (parm :in fd.args) {
                 parms.append(parm.name.text);
-                define(Variable(parm.name.text));
+                define(Def(parm.name.text));
             }
             body := _convertBlock(fd.body);
 
@@ -371,6 +375,14 @@ class CompileContext @impl Converter {
                                     );
             popFrame();
             return result;
+
+        } else if (fr := FieldRef.cast(node, null)) {
+            cmd := Command(convert(fr.primary).asTerm());
+            cmd.args.append(LiteralStringTerm(fr.field.text,
+                                              V1SrcLoc(fr.field.loc.getRow())
+                                              )
+                            );
+            return ValueExprWrapper(cmd);
 
         } else {
             throw Exception(FStr() `Unknown AST node type: $(node.class.name)`);

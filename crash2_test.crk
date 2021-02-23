@@ -13,23 +13,33 @@
 # limitations under the License.
 
 import crack.io cerr;
-import .crash EvalContext;
+import .crash createRootContext, Obj;
 import .crash2 convert;
 import .parser parseString;
 
 @import crack.ann assert;
 
 Object eval(String script) {
-    return convert(parseString(script)).evaluate(EvalContext());
+    return convert(parseString(script)).evaluate(createRootContext());
 }
 
 @assert(eval("if 1 { 'ok' }") == 'ok');
 @assert(eval("if 0 { 'ok' }") is null);
 @assert(eval("x := 'ok'") == 'ok');
-@assert(eval("x : String = 'ok'; x") == 'ok');
+@assert(eval("x : String = 'ok'; give x") == 'ok');
 @assert(eval("x := 0; if x { 'bad' } else { 'ok' }") == 'ok');
 @assert(eval("x := 1; if x { 'ok' } else { 'bad' }") == 'ok');
 @assert(eval("
-    func f(arg: String) : String { arg }
-    f('ok')") == 'ok');
+    func f(arg: String) : String { give arg }
+    f 'ok'") == 'ok');
+@assert(eval("
+    o := object { func f(arg: String) { give arg } }
+    o.f 'this is a test'") == 'this is a test');
+
+# This is intended behavior for now, as "field references" are basically
+# subcommands in classic crash.
+@assert(eval("
+    o := object { x := 100 }
+    format o.x") == 'Obj([])');
+
 cerr `ok\n`;
