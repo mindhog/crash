@@ -190,6 +190,7 @@ assertEvalsTo("if 0 { 'true' }", null);
 assertEvalsTo("if 1 { 'true' } else { 'false' }", 'true');
 assertEvalsTo("if 0 { 'true' } else { 'false' }", 'false');
 assertEvalsTo("x := 100; x", 100);
+assertEvalsTo("func f(arg: String) : String { arg }; f('ok')", 'ok');
 
 // Test concurrency.
 let cctx = new crash.CompileContext();

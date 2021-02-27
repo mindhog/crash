@@ -182,5 +182,13 @@ try {
     foobar
     ") == '100');
 
+# Verify "rest of file" strings.
+#@assert(
+@assert(eval(I"\
+    format #<
+    first line
+    second line
+    ") == '\nfirst line\nsecond line\n');
+
 cout `ok\n`;
 

@@ -1146,8 +1146,10 @@ class Toker {
             LIT_STR_HEX = 7,  # 7, 8 for first and second character
             LIT_STR_OCT = 9,  # 9, 10, 11 for up to three characters
 
-            COMMENT = 12,
-            BACKSLASH = 13;
+            PRE_COMMENT = 12,
+            COMMENT = 13,
+            BACKSLASH = 14,
+            CONSUME_FILE = 15;
         int state = BASE;
 
         # Accumulator for a hex or octal escape sequence.
@@ -1188,7 +1190,7 @@ class Toker {
                     state = LIT_STR;
                     startLineNum = lineNum;
                 } else if (ch == b'#') {
-                    state = COMMENT;
+                    state = PRE_COMMENT;
                 } else if (ch == b'\\') {
                     state = BACKSLASH;
                 } else if (!isSpace(ch)) {
@@ -1301,7 +1303,7 @@ class Toker {
                     result.append(val);
                     state = LIT_STR;
                 }
-            } else if (state >= LIT_STR_OCT && state < COMMENT) {
+            } else if (state >= LIT_STR_OCT && state < PRE_COMMENT) {
                 if (ch >= b'0' && ch <= b'7')
                     ch -= b'0';
                 else {
@@ -1322,11 +1324,18 @@ class Toker {
                 val = (val << 3) | ch;
 
                 ++state;
-                if (state == COMMENT) {
+                if (state == PRE_COMMENT) {
                     result.append(val);
                     state = LIT_STR;
                     continue;
                 }
+            } else if (state == PRE_COMMENT) {
+                if (ch == b'\n')
+                    state = BASE;
+                else if (ch == b'<')
+                    state = CONSUME_FILE;
+                else
+                    state = COMMENT;
             } else if (state == COMMENT) {
                 if (ch == b'\n')
                     state = BASE;
@@ -1339,6 +1348,11 @@ class Toker {
                     result.append(ch);
                     state = WORD;
                 }
+            } else if (state == CONSUME_FILE) {
+                if (ch)
+                    result.append(ch);
+                else
+                    return Token(TOK_STR, String(result, true), lineNum);
             }
         }
 

@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import crack.ext._readline add_history, readline, using_history;
+import crack.functor Functor2;
 import crack.io cerr;
 import crack.lang Exception;
 import crack.runtime strlen;
 
 import .crash createRootContext, eval, EvalContext;
+
+@import crack.ann cvars;
 
 # Make sure history is initialized.
 bool _initialized;
@@ -55,14 +58,19 @@ void repl() {
 
 }
 
-## Abstract base class to allow implementing a REPL for a specific parser
-## implementation.
-@abstract class REPLBase {
+## Typedef for fonctions that the REPL uses to send source text to the
+## interpreter.  Returns true if the input is "complete" (i.e. not part of a
+## multi-line command) and false if not, which will result in a different
+## prompt.
+alias InterpWriter = Functor2[bool, EvalContext, String];
+@export_symbols InterpWriter;
 
-    ## Add user input to the parser.  Returns true if the input is "complete"
-    ## (i.e. not part of a multi-line command) and false if not, which will
-    ## result in a different prompt.
-    @abstract bool addInput(String inputData);
+## REPL implementation class.
+class REPL {
+    InterpWriter sendToInterp;
+    @cvars {
+        EvalContext rootCtx;
+    }
 
     ## Run the repl until the user enters an end-of-file.
     void run() {
@@ -71,16 +79,24 @@ void repl() {
         bool useInitialPrompt = true;
         while (true) {
             raw := readline(useInitialPrompt ? '$ '.buffer : '> '.buffer);
-
             if (raw is null)
                 return;
             add_history(raw);
 
             try {
-                useInitialPrompt = addInput(String(raw, strlen(raw), true));
+                useInitialPrompt =
+                    sendToInterp(rootCtx, String(raw, strlen(raw), true));
             } catch (Exception ex) {
                 cerr `Got an exception: $ex\n`;
             }
         }
     }
 }
+
+bool classicSyntaxWriter(EvalContext ctx, String line) {
+    result := eval(line, ctx);
+    cerr `$result\n`;
+    return true;
+}
+
+classicSyntax := InterpWriter.Wrap(classicSyntaxWriter);

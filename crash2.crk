@@ -25,7 +25,7 @@ import .crash createRootContext, eval, ActiveFunc, Block, Command, CrashError,
     V1SrcLoc = SrcLoc, Term, V1VarRef = VarRef,
     V1StringLiteral = StringLiteral, Value;
 import .parser parseString;
-import .repl REPLBase;
+import .repl InterpWriter, REPL;
 import .types IntObj, FloatObj;
 
 @import crack.ann cvars, impl, interface, SCOPE_NAME;
@@ -394,23 +394,22 @@ ExprWrapper convert(Node node) {
     return CompileContext().convert(node);
 }
 
-class Crash2REPL : REPLBase {
-    EvalContext rootCtx = createRootContext();
-    CompileContext compileCtx = CompileContext();
-
-    bool addInput(String inputData) {
-        cout `$(convert(parseString(inputData)).evaluate(rootCtx))\n`;
-        return true;
-    }
+bool zulrefSyntaxWriter(EvalContext ctx, String inputData) {
+    cout `$(convert(parseString(inputData)).evaluate(ctx))\n`;
+    return true;
 }
+
+zulrefSyntax := InterpWriter.Wrap(zulrefSyntaxWriter);
 
 if (@SCOPE_NAME == '.main') {
     import crack.sys argv;
     import .stdlib stdlib;
     import .collections collections;
-    repl := Crash2REPL();
-    repl.rootCtx.define('stdlib', stdlib());
-    repl.rootCtx.define('collections', collections());
+    rootCtx := createRootContext();
+    rootCtx.define('stdlib', stdlib());
+    rootCtx.define('collections', collections());
+    repl := REPL(rootCtx);
+    repl.sendToInterp = zulrefSyntax;
     if (argv.count() > 1) {
         convert(parseString(makePath(argv[1]).readAll()))
             .evaluate(repl.rootCtx);

@@ -18,19 +18,25 @@ import crack.io cerr;
 import crack.lang Exception;
 import crack.sys argv;
 import crash createRootContext, eval, CrashError;
-import repl repl;
+import repl classicSyntax, REPL;
 import stdlib stdlib;
 import collections collections;
+import zulsyn syntax;
 
 ctx := createRootContext();
 ctx.define('stdlib', stdlib());
 ctx.define('collections', collections());
 
-if (argv.count() < 2)
-    repl(ctx);
-else {
+repl := REPL(ctx);
+ctx.define('syntax', syntax(repl));
+repl.sendToInterp = classicSyntax;
+
+if (argv.count() < 2) {
+    repl.run();
+} else {
     try {
-        eval(makePath(argv[1]).readAll(), ctx);
+        if (!repl.sendToInterp(ctx, makePath(argv[1]).readAll()))
+            cerr `incomplete script!\n`;
     } catch (CrashError ex) {
         for (int i = ex.stack.count() - 1; i >= 0; --i)
             cerr `$(ex.stack[i]):\n`;

@@ -1,0 +1,47 @@
+## The Zulang (crash2/crack2) syntax selector.
+
+import crack.ascii strip;
+import crack.cont.array Array;
+import crack.cont.hashmap HashMap;
+import crack.io FStr;
+import crack.lang Exception;
+import .repl classicSyntax, InterpWriter, REPL;
+import .crash Builtin, EvalContext;
+import .crash2 zulrefSyntax;
+import .types IntObj;
+
+@import .ann function;
+
+_syntaxes := HashMap[String, InterpWriter]();
+_syntaxes['classic'] = classicSyntax;
+_syntaxes['zulref'] = zulrefSyntax;
+
+## Run a block implemented in the given syntax or change the repl or script
+## syntax.
+##    syntax <name> <contents>
+## <name> is the syntax name, <contents> is the text to run in that syntax.
+## If it is empty, changes the syntax from that point on.
+@function(REPL) int syntax(String syntaxName, String contents) {
+    syntaxFunc := _syntaxes.get(syntaxName);
+    if (!syntaxFunc)
+        throw Exception(FStr() `Unknown syntax name "$syntaxName"`);
+
+    if (strip(contents)) {
+        # There's a program.  Add it and run it.
+        if (!syntaxFunc(self.rootCtx, contents))
+            # TODO: We should be able to indicate to the module the provides
+            # the syntax (currently the REPL) that we want an exception with
+            # detailed information here instead of letting us know that we
+            # need to change the prompt and get more input.
+            throw Exception('Incomplete input (missing closing brace?)');
+    } else {
+        # If we haven't got a complete program, we can just assume that we've
+        # changed the repl.  TODO: we should probably revert the repl to its
+        # original state, in this case, as "syntax 'foo' 'script data'"
+        # probably means that we want to just run 'script data' as a one-off
+        # rather than converting the REPL to the new syntax.
+        self.sendToInterp = syntaxFunc;
+    }
+    return 0;
+}
+
