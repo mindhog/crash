@@ -178,7 +178,7 @@ assert(ast.toString() == "print 'this is some text' {x := 100;};");
 function assertEvalsTo(code, val) {
     let cctx = new crash.CompileContext();
     let func = crash.convert(cctx, crash.parseString(code));
-    let actual = func(new crash.EvalContext(null, [], [func]));
+    let actual = func(new crash.makeRootContext([func]));
     if (actual != val)
         throw Error('assertion failed');
 }
@@ -189,15 +189,15 @@ assertEvalsTo("if 1 { 'true' }", 'true');
 assertEvalsTo("if 0 { 'true' }", null);
 assertEvalsTo("if 1 { 'true' } else { 'false' }", 'true');
 assertEvalsTo("if 0 { 'true' } else { 'false' }", 'false');
-assertEvalsTo("x := 100; x", 100);
-assertEvalsTo("func f(arg: String) : String { arg }; f('ok')", 'ok');
+assertEvalsTo("x := 100; give x", 100);
+assertEvalsTo("func f(arg: String) : String { give arg }; f 'ok'", 'ok');
 
 // Test concurrency.
 let cctx = new crash.CompileContext();
 try {
     let code = crash.parseString('1; yield; 2');
     let func = crash.convert(cctx, code);
-    func(new crash.EvalContext(null, [], [func]));
+    func(new crash.makeRootContext([func]));
     assert(false); // Should have thrown
 } catch (e) {
     if (!(e instanceof crash.Yielded))

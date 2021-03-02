@@ -61,7 +61,7 @@ class Expr extends Node {
 // A function call.
 class FuncCall extends Expr {
     // loc: SrcLoc
-    // func: ident
+    // func: expr
     // args: array of Expr.
     constructor(loc, func, args) {
         super(loc);
@@ -79,6 +79,36 @@ class FuncCall extends Expr {
 }
 
 exports.FuncCall = FuncCall;
+
+// A variable reference.
+class VarRef extends Expr {
+    // loc: SrcLoc
+    // var: Ident
+    constructor(loc, variable) {
+        super(loc);
+        this.variable = variable;
+    }
+
+    toString() {
+        return this.variable.toString();
+    }
+}
+
+// A field reference.
+class FieldRef extends Expr {
+    // loc: SrcLoc
+    // primary: Expr
+    // field: Ident
+    constructor(loc, primary, field) {
+        super(loc);
+        this.primary = primary;
+        this.field = field;
+    }
+
+    toString() {
+        out `($primary).$field`;
+    }
+}
 
 class List extends Expr {
     // loc: SrcLoc
@@ -228,6 +258,33 @@ class ForStmt extends Expr {
 
 exports.ForStmt = ForStmt;
 
+// Type specifier.
+class TypeSpec extends Expr {
+
+    // loc: SrcLoc
+    constructor(loc) {
+        super(loc);
+    }
+}
+
+exports.TypeSpec = TypeSpec;
+
+// A named type.  This basically wraps a simple variable name.
+class NominalType extends TypeSpec {
+    // loc: SrcLoc
+    // name: Ident
+    constructor(loc, name) {
+        super(loc);
+        this.name = name;
+    }
+
+    toString() {
+        return this.name;
+    }
+}
+
+exports.NominalType = NominalType;
+
 class VarDef extends Expr {
     // loc: SrcLoc
     // name: Ident
@@ -252,6 +309,32 @@ class VarDef extends Expr {
 
 exports.VarDef = VarDef;
 
+class FuncDef extends Expr {
+
+    // loc: SrcLoc
+    // name: Ident
+    // args: array of VarDef
+    // returnType: TypeSpec
+    // body: StaticList
+    constructor(loc, name, args, returnType, body) {
+        super(loc);
+        this.name = name;
+        this.args = args;
+        this.returnType = returnType;
+        this.body = body;
+    }
+
+    toString() {
+        let argsAsStr = '';
+        for (let i = 0; i < this.args.length; ++i) {
+            argsAsStr += this.args[i] + ',';
+        }
+        return 'func ' + (this.name ? this.name : '') +
+            '(' + argsAsStr + ')' +
+            (this.returnType ? (' : ' + this.returnType.toString()) : '') +
+            ' ' + this.body;
+    }
+}
 const TOK_EOF = 0;
 exports.TOK_EOF = TOK_EOF;
 const TOK_LPAREN = 1;
@@ -272,10 +355,14 @@ const TOK_LCURLY = 8;
 exports.TOK_LCURLY = TOK_LCURLY;
 const TOK_RCURLY = 9;
 exports.TOK_RCURLY = TOK_RCURLY;
-const TOK_COLON = 9;
+const TOK_COLON = 10;
 exports.TOK_COLON = TOK_COLON;
-const TOK_ASSIGN = 10;
+const TOK_ASSIGN = 11;
 exports.TOK_ASSIGN = TOK_ASSIGN;
+const TOK_COMMA = 12;
+exports.TOK_COMMA = TOK_COMMA;
+const TOK_DOT = 13;
+exports.TOK_DOT = TOK_DOT;
 
 class Token {
     // loc: SrcLoc
@@ -293,11 +380,12 @@ class Token {
         else if (this.type == TOK_EOF)
             return '<EOF>';
         else
-            return ':' + type + ':';
+            return ':' + this.type + ':';
     }
 
     isAssign() { return this.type == TOK_ASSIGN; }
     isColon() { return this.type == TOK_COLON; }
+    isDot() { return this.type == TOK_DOT; }
     isEOF() { return this.type == TOK_EOF; }
     isFloat() { return this.type == TOK_FLOAT; }
     isIdent(val) {
@@ -313,7 +401,7 @@ class Token {
     isStrLit() { return this.type == TOK_STRLIT; }
     isTerminator() {
         return this.type == TOK_EOF || this.type == TOK_RCURLY ||
-            this.type == TOK_RPAREN;
+            this.type == TOK_RPAREN || this.type == TOK_DOT;
     }
 }
 
@@ -380,7 +468,7 @@ class Toker {
         let m = null;
         while (m = this.match(/^(\s+|(#[^\n]*))+/)) {
 
-            console.log('comsuming ' + m[0].length + ' from ' + this.contents);
+            //console.log('consuming ' + m[0].length + ' from ' + this.contents);
             this.consume(m[0].length);
         }
 
@@ -434,6 +522,13 @@ class Toker {
 
 exports.Toker = Toker;
 
+// Returns an identifier created from the token (which should be an identifier
+// token).
+// token: Token
+function makeIdent(token) {
+    return new Ident(token.loc, token.text);
+}
+
 class Parser {
     // toker: Toker
     constructor(toker) {
@@ -450,9 +545,76 @@ class Parser {
 
     putBack(tok) { this.putback.push(tok); }
 
-    parseExpr(longFuncCalls) {
+    parseArgList(ident) {
+        let tok;
+        let args = [];
+        while (!(tok = this.getToken()).isTerminator() && !tok.isSemi()) {
+            this.putBack(tok);
+            args.push(this.parseExpr(false));
+        }
+        if (!tok.isSemi()) {
+            this.putBack(tok);
+        }
+        return args;
+    }
+
+    // ident: Token
+    parseFuncDef(ident) {
+        let srcLoc = ident.loc;
+        let tok = this.getToken();
+
+        let name; // type: Ident
+        if (tok.isIdent()) {
+            name = makeIdent(tok);
+            tok = this.getToken();
+        }
+
+        if (!tok.isLParen())
+            throw new ParseError('Argument list expected, got ' + tok);
+
+        // Parse the argument list.
+        let args = [];
+        tok = this.getToken();
+        while (!tok.isRParen()) {
+            if (tok.isIdent()) {
+                let tok2 = this.getToken();
+                if (!tok2.isColon())
+                    throw new ParseError(
+                        'Expected colon after argument name, got ' + tok
+                    );
+                args.push(this.parseVarDef(tok));
+            }
+            tok = this.getToken();
+            if (!tok.isRParen() && !tok.isComma())
+                throw new ParseError(
+                    'Comma or end paren expected, got ' + tok
+                );
+        }
+
+        // Check for a return type.
+        tok = this.getToken();
+
+        let returnType; // type: TypeSpec
+        if (tok.isColon()) {
+            returnType = this.parseTypeSpec();
+            tok = this.getToken();
+        }
+
+        // Parse the body.
+        if (!tok.isLCurly())
+            throw new ParseError('Static list expected, got ' + tok);
+        let body = this.parseStaticList(tok.loc);
+
+        return new FuncDef(srcLoc, name, args, returnType, body);
+    }
+
+    parsePrimary(longFuncCalls) {
         let tok = this.getToken();
         if (tok.isIdent()) {
+            // Check for a function definition.
+            if (tok.isIdent('func'))
+                return this.parseFuncDef(tok);
+
             // Check for a variable definition.
             let tok2 = this.getToken();
             if (tok2.isColon()) {
@@ -461,12 +623,14 @@ class Parser {
             this.putBack(tok2);
 
             if (longFuncCalls) {
-                this.putBack(tok);
-                return this.parseFuncCall(tok);
-            } else {
-                return new FuncCall(tok.loc, new Ident(tok.loc, tok.text),
-                                    []
+                return new FuncCall(tok.loc,
+                                    new VarRef(tok.loc,
+                                               makeIdent(tok)
+                                               ),
+                                    this.parseArgList()
                                     );
+            } else {
+                return new VarRef(tok.loc, makeIdent(tok));
             }
         } else if (tok.isStrLit()) {
             return new StringLiteral(tok.loc, eval(tok.text));
@@ -483,17 +647,38 @@ class Parser {
         }
     }
 
-    parseFuncCall(ident) {
-        let name = new Ident(ident.loc, ident.text);
-        let tok = this.getToken();
-        let args = [];
-        while (!(tok = this.getToken()).isTerminator() && !tok.isSemi()) {
-            this.putBack(tok);
-            args.push(this.parseExpr(false));
+    parseExpr(longFuncCalls) {
+        let expr = this.parsePrimary(longFuncCalls);
+        while (true) {
+            let tok = this.getToken();
+            if (tok.isDot()) {
+                tok = this.getToken();
+                if (!tok.isIdent())
+                    throw new ParseError(
+                        'Identifier expected in field reference'
+                    );
+
+                let fieldRef = new FieldRef(expr.loc, expr, makeIdent(tok));
+                let args = this.parseArgList();
+                return new FuncCall(fieldRef.loc, fieldRef, args);
+            } else {
+                this.putBack(tok);
+                break;
+            }
         }
-        if (!tok.isSemi())
-            this.putBack(tok);
-        return new FuncCall(ident.loc, name, args);
+        return expr;
+    }
+
+    // Returns TypeSpec
+    parseTypeSpec() {
+        // TODO: deal with complex type expressions.
+        let tok = this.getToken();
+        if (!tok.isIdent())
+            throw new ParseError('Expected type name or assignment ' +
+                                  'operator after colon, got ' + tok
+                                 );
+
+        return new NominalType(tok.loc, makeIdent(tok));
     }
 
     parseVarDef(ident) {
@@ -613,15 +798,21 @@ function print(ctx, args) {
         console.log(args[i]);
 }
 
+function give(ctx, args) {
+    return args[0];
+}
+
 function yield_(ctx, args) {
     throw new Yielded(ctx);
 }
 
 class CompileContext {
-    constructor() {
+    constructor(parent) {
+        this.parent = parent;
         this.defs = {
             yield: yield_,
             print: print,
+            give: give,
         };
     }
 
@@ -690,7 +881,23 @@ class EvalContext {
 
         return result;
     }
+
+    toString() {
+        return 'EvalContext';
+    }
 }
+
+// Returns EvalContext for the root context.
+// block: array of function(EvalContext)
+function makeRootContext(block) {
+    let result = new EvalContext(null, [], block);
+    result.defs['give'] = give;
+    result.defs['yield'] = yield_;
+    result.defs['print'] = print;
+    return result;
+}
+
+exports.makeRootContext = makeRootContext;
 
 class ArgsContext extends EvalContext {
     // func: the function to be after the block.
@@ -744,6 +951,13 @@ function convertList(cctx, list) {
     return result;
 }
 
+function listToStr(list) {
+    let result = '['
+    for (let i = 0; i < list.length; ++i)
+        result += list[i] + ',\n'
+    return result + ']';
+}
+
 // Converts an AST node to a javascript function.
 // cctx: CompileContext
 // node: Node
@@ -753,10 +967,18 @@ function convert(cctx, node) {
         return (ctx) => node.contents;
     } else if (node instanceof FloatLiteral || node instanceof IntegerLiteral) {
         return (ctx) => node.val;
+    } else if (node instanceof VarRef) {
+        if (cctx.resolve(node.variable.text))
+            return (ctx) => {
+                let result = ctx.lookUp(node.variable.text);
+                return result;
+            };
+        else
+            throw new Error('Undefined name ' + node.variable.text);
     } else if (node instanceof FuncCall) {
-        let f = cctx.resolve(node.func.text);
-        if (f == undefined)
-            throw Error('Undefined name ' + node.func.text);
+        let f = convert(cctx, node.func);
+
+        // TODO: verify that f is an instance of something callable.
 
         // Convert the arguments.
         let argExprs = convertList(cctx, node.args);
@@ -764,7 +986,7 @@ function convert(cctx, node) {
         return (ctx) => {
             // Need to eval args and populate the args list in an intermediate
             // context
-            return f.call(null, ctx, evalArgs(ctx, argExprs));
+            return f(ctx).call(null, ctx, evalArgs(ctx, argExprs));
         };
     } else if (node instanceof StaticList) {
         let funcList = convertList(cctx, node.contents);
@@ -798,6 +1020,30 @@ function convert(cctx, node) {
                 return null;
             };
         }
+    } else if (node instanceof FuncDef) {
+        cctx.defs[node.name.text] = (ctx) => ctx.lookUp(node.name.text);
+
+        // Create a new context for the function and add the args to it.
+        let newCCtx = new CompileContext(cctx);
+        for (let i = 0; i < node.args.length; ++i) {
+            convert(newCCtx, node.args[i]);
+        }
+
+        // Convert the body.  Note that this will be a function that returns a
+        // a function that can be evaluated.
+        let body = convert(newCCtx, node.body);
+
+        return (ctx) => {
+            function theFunc(ctx, args) {
+                let currentBody = body(ctx);
+                let newCtx = new EvalContext(ctx, ctx.args, [body]);
+                for (let i = 0; i < args.length; ++i)
+                    ctx.defs[node.args[i].name.text] = args[i];
+                return currentBody(ctx);
+            }
+
+            ctx.defs[node.name.text] = theFunc;
+        };
     } else {
         throw Error('bad node type: ' + node);
     }
