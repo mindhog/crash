@@ -86,7 +86,7 @@ try {
     eval('[makeObj] die', root);
     @assert(false);
 } catch (CrashError ex) {
-    @assert(ex.text.endsWith('some text'));
+    @assert(ex.text.endsWith('some text\n'));
 }
 
 # Test automatic conversion.
