@@ -71,8 +71,6 @@ float64 parseFloat(Buffer rep) {
       }
     }
   }
-  if (state < 2)
-    exp = 1;
   return val * exp10(exp * expSign);
 }
 

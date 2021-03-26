@@ -22,6 +22,7 @@ String str(Object obj) { return FStr() `$obj` }
 ## Assert that "original" when parsed using zulref syntax reformats to
 ## "reformatted" in sparse modern syntax.
 void assertReformatted(String original, String reformatted) {
+    #cerr `[$original] => [$(parseString(original))]\n`;
     @assert(str(parseString(original)) == reformatted);
 }
 
@@ -48,6 +49,11 @@ assertReformatted("func(x: String) { 'test' }",
                   "func (x : String) {'test'}");
 assertReformatted("foo.bar", 'foo.bar()');
 assertReformatted("foo.bar baz.bar", 'foo.bar(baz.bar)');
+assertReformatted('x := foo.bar', 'x := foo.bar');
+assertReformatted("'string'.foo", "'string'.foo()");
+assertReformatted("1.foo", "1.foo()");
+assertReformatted("1.0.foo", "1.000000.foo()");
+assertReformatted("{}.foo", "{}.foo()");
 
 cerr `ok\n`;
 

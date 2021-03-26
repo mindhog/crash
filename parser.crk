@@ -140,13 +140,14 @@ class Toker {
             # States for parsing a number.
             INTEGER = 2,
             FRACTION = 3,
-            EXPONENT_SIGN = 4,
-            EXPONENT = 5,
+            FRACTION2 = 4,  # Fraction after one digit past the decimal point.
+            EXPONENT_SIGN = 5,
+            EXPONENT = 6,
 
-            LIT_STR = 6,
-            LIT_STR_ESC = 7,
-            LIT_STR_HEX = 8,  # 8, 9 for first and second character
-            LIT_STR_OCT = 10,  # 10, 11, 12 for up to three characters
+            LIT_STR = 7,
+            LIT_STR_ESC = 8,
+            LIT_STR_HEX = 9,  # 9, 10 for first and second character
+            LIT_STR_OCT = 11,  # 11, 12, 13 for up to three characters
 
             COMMENT = 13;
         int state = BASE;
@@ -237,6 +238,23 @@ class Toker {
                     return __makeTok(TOK_INT, String(result, true));
                 }
             } else if (state == FRACTION) {
+                if (isDigit(ch)) {
+                    result.append(ch);
+                    state = FRACTION2;
+                } else if (ch == b'e' || ch == b'E') {
+                    result.append(ch);
+                    state = EXPONENT_SIGN;
+                } else {
+                    # Backup past the current digit and the exponent, return
+                    # an integer.
+                    if (ch) {
+                        backup();
+                        backup();
+                        --result.size;
+                    }
+                    return __makeTok(TOK_INT, String(result, true));
+                }
+            } else if (state == FRACTION2) {
                 if (isDigit(ch)) {
                     result.append(ch);
                 } else if (ch == b'e' || ch == b'E') {
@@ -539,7 +557,9 @@ class Parser {
     #              |   literal
     #              |   '(' long_expr ')'
     Expr parseExpr(int exprCtx) {
-        tok := getToken();
+        firstTok := tok := getToken();
+        Expr expr;
+        bool isLiteral;
         if (tok.isIdent()) {
 
             # Check for a function definition.
@@ -551,44 +571,64 @@ class Parser {
             if (tok2.isColon()) {
                 return parseVarDef(tok);
             }
+            putBack(tok2);
 
-            Expr primary = VarRef(tok.getSrcLoc(), makeIdent(tok));
-            if (tok2.isDot())
-                primary = parseFieldRef(primary);
-            else
-                putBack(tok2);
-
-            if (exprCtx == EC_LONG) {
-                return FuncCall(tok.getSrcLoc(), primary, parseArgList());
-            } else if (exprCtx == EC_SHORT) {
-                return primary;
-            } else {
-                # Mixed context.  Return a func call or not depending on
-                # whether there are arguments.
-                args := parseArgList();
-                if (args)
-                    return FuncCall(tok.getSrcLoc(),
-                                    primary,
-                                    args
-                                    );
-                else
-                    return primary;
-            }
-        } else if (tok.isStrLit()) {
-            return StringLiteral(tok.getSrcLoc(), tok.text);
-        } else if (tok.isInt()) {
-            return IntegerLiteral(tok.getSrcLoc(), parseInt(tok.text));
-        } else if (tok.isFloat()) {
-            return FloatLiteral(tok.getSrcLoc(), parseFloat(tok.text));
+            expr = VarRef(tok.getSrcLoc(), makeIdent(tok));
         } else if (tok.isLParen()) {
             # Collapse a single element dynamic list to the first element.
             result := parseDynamicList(tok.getSrcLoc());
             elems := result.getElements();
-            return elems.count() ==  1 ? elems[0] : result;
-        } else if (tok.isLCurly()) {
-            return parseStaticList(tok.getSrcLoc());
+            expr = elems.count() ==  1 ? elems[0] : result;
         } else {
-            throw ParseError(FStr() `Unexpected token: $tok`);
+            isLiteral = true;
+            if (tok.isStrLit()) {
+                expr = StringLiteral(tok.getSrcLoc(), tok.text);
+            } else if (tok.isInt()) {
+                expr = IntegerLiteral(tok.getSrcLoc(), parseInt(tok.text));
+            } else if (tok.isFloat()) {
+                expr = FloatLiteral(tok.getSrcLoc(), parseFloat(tok.text));
+            } else if (tok.isLCurly()) {
+                expr = parseStaticList(tok.getSrcLoc());
+            } else {
+                throw ParseError(FStr() `Unexpected token: $tok`);
+            }
+        }
+
+        # Parse any subsequent secondaries.
+        tok = getToken();
+        while (true) {
+            # Rule out obvious terminators.
+            if (tok.isSemi() || tok.isRParen() || tok.isRCurly()) {
+                # Just break: even though we know there are no arguments, we
+                # still want to generate a function call if we're in long
+                # expression context.
+                break;
+            }
+
+            # Check for a field reference.
+            if (tok.isDot()) {
+                isLiteral = false;
+                expr = parseFieldRef(expr);
+                tok = getToken();
+            } else {
+                break;
+            }
+        }
+
+        # Depending on our context, check for an arg list.
+        putBack(tok);
+        if (isLiteral || exprCtx == EC_SHORT) {
+            return expr;
+        } else if (exprCtx == EC_LONG) {
+            return FuncCall(firstTok.getSrcLoc(), expr, parseArgList());
+        } else {
+            # Mixed context.  Return a func call or not depending on
+            # whether there are arguments.
+            args := parseArgList();
+            if (args)
+                return FuncCall(firstTok.getSrcLoc(), expr, args);
+            else
+                return expr;
         }
     }
 
