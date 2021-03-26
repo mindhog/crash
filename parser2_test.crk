@@ -19,27 +19,35 @@ import crack.io cerr, FStr;
 
 String str(Object obj) { return FStr() `$obj` }
 
-@assert(str(parseString("if x { print 'yes' } else { print 'no' }")) ==
-        "if x {print 'yes';} else {print 'no';};"
-        );
+## Assert that "original" when parsed using zulref syntax reformats to
+## "reformatted" in sparse modern syntax.
+void assertReformatted(String original, String reformatted) {
+    @assert(str(parseString(original)) == reformatted);
+}
 
-@assert(str(parseString("if (foo 'bar') { print 'yes' } else { print 'no' }")) ==
-        "if (foo 'bar';) {print 'yes';} else {print 'no';};"
-        );
+assertReformatted("if x { print 'yes' } else { print 'no' }",
+                  "if (x) {print('yes')} else {print('no')}"
+                  );
+assertReformatted("if (foo 'bar') { print 'yes' } else { print 'no' }",
+                  "if (foo('bar')) {print('yes')} else {print('no')}"
+                  );
 
-@assert(str(parseString("x : foo = 100")) == "x : foo = 100;");
-@assert(str(parseString("x := 100")) == "x := 100;");
-@assert(str(parseString("x : foo")) == "x : foo;");
-@assert(str(parseString("func foo(x: String) : String { 'test' }")) ==
-        "func foo(x : String,) : String {'test';};");
-@assert(str(parseString("func foo() : String { 'test' }")) ==
-        "func foo() : String {'test';};");
-@assert(str(parseString("func foo(x: String) { 'test' }")) ==
-        "func foo(x : String,) {'test';};");
-@assert(str(parseString("func(x: String) { 'test' }")) ==
-        "func (x : String,) {'test';};");
-@assert(str(parseString("foo.bar")) == '(foo).bar;');
-@assert(str(parseString("foo.bar baz.bar")) == '(foo).bar (baz).bar;');
+assertReformatted("x : foo = 100", "x : foo = 100");
+assertReformatted("x := 100", "x := 100");
+assertReformatted("x : foo", "x : foo");
+assertReformatted("x := y", "x := y");
+assertReformatted("x := y 1 2 3", "x := y(1, 2, 3)");
+assertReformatted("x := (y)", "x := y()");
+assertReformatted("func foo(x: String) : String { 'test' }",
+                  "func foo(x : String) : String {'test'}");
+assertReformatted("func foo() : String { 'test' }",
+                  "func foo() : String {'test'}");
+assertReformatted("func foo(x: String) { 'test' }",
+                  "func foo(x : String) {'test'}");
+assertReformatted("func(x: String) { 'test' }",
+                  "func (x : String) {'test'}");
+assertReformatted("foo.bar", 'foo.bar()');
+assertReformatted("foo.bar baz.bar", 'foo.bar(baz.bar)');
 
 cerr `ok\n`;
 

@@ -13,10 +13,15 @@
 # limitations under the License.
 
 ## Crash 2 Abstract syntax tree.
+##
+## The AST should be normalized to remove extraneous enclosing nodes.  For
+## example, a dynamic list consisting of a single expression should normalize
+## to that expression (I can't think of another place where this comes into
+## play).
 
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-import crack.io Formatter, FStr;
+import crack.io cerr, Formatter, FStr;
 import crack.lang cmp;
 
 class SrcLoc;
@@ -107,9 +112,17 @@ class FuncCall : Expr {
     }
 
     void formatTo(Formatter out) {
-        out `$func`;
-        for (arg :in args)
-            out ` $arg`;
+        out `$func(`;
+        bool notFirst;
+        for (arg :in args) {
+            if (notFirst) {
+                out `, $arg`;
+            } else {
+                out `$arg`;
+                notFirst = true;
+            }
+        }
+        out `)`;
     }
 }
 
@@ -136,7 +149,7 @@ class FieldRef : Expr {
     }
 
     void formatTo(Formatter out) {
-        out `($primary).$field`;
+        out `$primary.$field`;
     }
 }
 
@@ -149,8 +162,15 @@ class List : Expr {
     }
 
     void formatTo(Formatter out) {
-        for (expr :in _contents)
-            out `$expr;`;
+        bool notFirst;
+        for (expr :in _contents) {
+            if (notFirst) {
+                out `; $expr`;
+            } else {
+                out `$expr`;
+                notFirst = true;
+            }
+        }
     }
 
     Array[Expr] getElements() { return _contents }
@@ -161,7 +181,7 @@ class StringLiteral : Expr {
     oper init(SrcLoc loc, String contents) : Expr(loc), contents = contents {}
 
     void formatTo(Formatter out) {
-        out `'$contents'`;
+        out `$(contents.getRepr())`;
     }
 }
 
@@ -225,7 +245,12 @@ class IfStmt : Expr {
     }
 
     void formatTo(Formatter out) {
-        out `if $cond $onTrue`;
+        out `if `;
+        if (cond.isa(DynamicList))
+            out `$cond`;
+        else
+            out `($cond)`;
+        out ` $onTrue`;
         if (onFalse) out ` else $onFalse`;
     }
 }
@@ -340,8 +365,15 @@ class FuncDef : Expr {
 
     void formatTo(Formatter out) {
         out `func $(name ? str(name) : '')(`;
-        for (arg :in args)
-            out `$arg,`;
+        bool notFirst;
+        for (arg :in args) {
+            if (notFirst) {
+                out `, $arg`;
+            } else {
+                out `$arg`;
+                notFirst = true;
+            }
+        }
         out `)$(returnType ? ' : ' + str(returnType) : '') $body`;
     }
 }

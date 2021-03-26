@@ -19,7 +19,7 @@ import crack.lang AppendBuffer, CString, Exception;
 import crack.runtime atof;
 
 import .ast DynamicList, Expr, FieldRef, FloatLiteral, FuncCall, FuncDef,
-    Ident, IfStmt, IntegerLiteral, List, Node, NominalType, SrcLoc, 
+    Ident, IfStmt, IntegerLiteral, List, Node, NominalType, SrcLoc,
     StaticList, StringLiteral, TypeSpec, VarDef, VarRef;
 import .floats parseFloat;
 
@@ -375,6 +375,21 @@ Ident makeIdent(Token tok) {
     return Ident(tok.getSrcLoc(), tok.text);
 }
 
+const int
+    ## Short expression context.  Don't treat tokens following a simple
+    ## expression as function call arguments.
+    EC_SHORT = 0,
+
+    ## Long expression context.  For any non-literal, always return a
+    ## function call and always treat tokens following a simple expression as
+    ## function call arguments.
+    EC_LONG = 1,
+
+    ## Mixed expression format (for use in the var def initialization case).
+    ## Treat a simple expression as a function call only if there are
+    ## arguments or if it is the only expresion in a dynamic list.
+    EC_MIXED = 2;
+
 class Parser {
     Toker toker;
     Array[Token] __putback = {};
@@ -390,7 +405,7 @@ class Parser {
 
     void putBack(Token tok) { __putback.append(tok) }
 
-    Expr parseExpr(bool longFuncCalls);
+    Expr parseExpr(int exprCtx);
     StaticList parseStaticList(SrcLoc loc);
     DynamicList parseDynamicList(SrcLoc loc);
     Expr parseStatement();
@@ -400,7 +415,7 @@ class Parser {
         args := Array[Expr]();
         while (!(tok = getToken()).isTerminator() && !tok.isSemi()) {
             putBack(tok);
-            args.append(parseExpr(false));
+            args.append(parseExpr(EC_SHORT));
         }
         if (!tok.isSemi())
             putBack(tok);
@@ -418,6 +433,17 @@ class Parser {
         return NominalType(tok.getSrcLoc(), makeIdent(tok));
     }
 
+    ## Parse the value in an assignment.  This is special in that it is a
+    ## long_expr except in the special case where it consists of a single
+    ## identifier, in which case that identifier is treated as a variable
+    ## reference.
+    ##
+    ## assign_val ::= var_ref     # higher priority than long_expr
+    ##            |   long_expr
+    Expr parseAssignmentValue() {
+        return parseExpr(EC_MIXED);
+    }
+
     ## var_def ::= ident ':' type '=' expr
     ##         |   ident ':' '=' expr
     ##         |   ident ':' type
@@ -426,19 +452,20 @@ class Parser {
         id := makeIdent(ident);
         tok := getToken();
         if (tok.isAssign())
-            return VarDef(ident.getSrcLoc(), id, null, parseExpr(true));
+            return VarDef(ident.getSrcLoc(), id, null, parseAssignmentValue());
 
         putBack(tok);
         type := parseTypeSpec();
         tok = getToken();
         if (!tok.isAssign()) {
             putBack(tok);
-            return VarDef(ident.getSrcLoc(), makeIdent(ident), type, 
+            return VarDef(ident.getSrcLoc(), makeIdent(ident), type,
                           null
                           );
         }
 
-        return VarDef(ident.getSrcLoc(), makeIdent(ident), type, parseExpr(true));
+        return VarDef(ident.getSrcLoc(), makeIdent(ident), type,
+                      parseAssignmentValue());
     }
 
     ## func_def ::= 'func' ident '(' arg_list ')' ':' type_spec static_list
@@ -491,7 +518,27 @@ class Parser {
         return FuncDef(srcLoc, name, args, returnType, body);
     }
 
-    Expr parsePrimary(bool longFuncCalls) {
+    # field_ref ::= expr '.' ident
+    FieldRef parseFieldRef(Expr primary) {
+        tok := getToken();
+        if (!tok.isIdent())
+            throw ParseError('Identifier expected in field reference');
+
+        return FieldRef(primary.loc, primary, makeIdent(tok));
+    }
+
+    # primary ::= func_def
+    #         |   var_ref
+    #         |   var_def
+    #         |   literal
+    #         |   '(' long_expr ')'
+    #
+    # long_primary ::= func_def
+    #              |   func_call
+    #              |   var_def
+    #              |   literal
+    #              |   '(' long_expr ')'
+    Expr parseExpr(int exprCtx) {
         tok := getToken();
         if (tok.isIdent()) {
 
@@ -505,14 +552,27 @@ class Parser {
                 return parseVarDef(tok);
             }
 
-            putBack(tok2);
+            Expr primary = VarRef(tok.getSrcLoc(), makeIdent(tok));
+            if (tok2.isDot())
+                primary = parseFieldRef(primary);
+            else
+                putBack(tok2);
 
-            if (longFuncCalls) {
-                return FuncCall(tok.getSrcLoc(),
-                                VarRef(tok.getSrcLoc(), makeIdent(tok)),
-                                parseArgList());
+            if (exprCtx == EC_LONG) {
+                return FuncCall(tok.getSrcLoc(), primary, parseArgList());
+            } else if (exprCtx == EC_SHORT) {
+                return primary;
             } else {
-                return VarRef(tok.getSrcLoc(), makeIdent(tok));
+                # Mixed context.  Return a func call or not depending on
+                # whether there are arguments.
+                args := parseArgList();
+                if (args)
+                    return FuncCall(tok.getSrcLoc(),
+                                    primary,
+                                    args
+                                    );
+                else
+                    return primary;
             }
         } else if (tok.isStrLit()) {
             return StringLiteral(tok.getSrcLoc(), tok.text);
@@ -521,7 +581,10 @@ class Parser {
         } else if (tok.isFloat()) {
             return FloatLiteral(tok.getSrcLoc(), parseFloat(tok.text));
         } else if (tok.isLParen()) {
-            return parseDynamicList(tok.getSrcLoc());
+            # Collapse a single element dynamic list to the first element.
+            result := parseDynamicList(tok.getSrcLoc());
+            elems := result.getElements();
+            return elems.count() ==  1 ? elems[0] : result;
         } else if (tok.isLCurly()) {
             return parseStaticList(tok.getSrcLoc());
         } else {
@@ -529,28 +592,8 @@ class Parser {
         }
     }
 
-    Expr parseExpr(bool longFuncCalls) {
-        expr := parsePrimary(longFuncCalls);
-        while (true) {
-            tok := getToken();
-            if (tok.isDot()) {
-                tok = getToken();
-                if (!tok.isIdent())
-                    throw ParseError('Identifier expected in field reference');
-
-                fieldRef := FieldRef(expr.loc, expr, makeIdent(tok));
-                args := parseArgList();
-                return FuncCall(fieldRef.loc, fieldRef, args);
-            } else {
-                putBack(tok);
-                break;
-            }
-        }
-        return expr;
-    }
-
     IfStmt parseIfStmt(Token ident) {
-        cond := parseExpr(false);
+        cond := parseExpr(EC_SHORT);
         tok := getToken();
         StaticList onTrue, onFalse;
         if (tok.isLCurly()) {
@@ -586,7 +629,7 @@ class Parser {
         else if (tok.isIdent('if'))
             return parseIfStmt(tok);
         putBack(tok);
-        return parseExpr(true);
+        return parseExpr(EC_LONG);
     }
 
     void parseList(Array[Expr] list) {

@@ -19,13 +19,14 @@ import .parser parseString;
 
 test := "echo 'hello world' { echo 'foo' }; echo 'goodbye'";
 actual := FStr() `$(parseString(test))`;
-expected := "echo 'hello world' {echo 'foo';};echo 'goodbye';";
+expected := "echo('hello world', {echo('foo')}); echo('goodbye')";
 @assert(actual == expected);
-@assert(FStr() `$(parseString(expected))` == expected);
+# TODO: restore this when we support multiple parser/formatters.
+#@assert(FStr() `$(parseString(expected))` == expected);
 
 # Verify that names in an arg list parse as plain names.
 @assert(FStr() `$(parseString("echo var1 var2 (command var3)"))` ==
-        'echo var1 var2 (command var3;);'
+        'echo(var1, var2, command(var3))'
         );
 
 script := I"\
