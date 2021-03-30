@@ -54,6 +54,9 @@ assertReformatted("'string'.foo", "'string'.foo()");
 assertReformatted("1.foo", "1.foo()");
 assertReformatted("1.0.foo", "1.000000.foo()");
 assertReformatted("{}.foo", "{}.foo()");
+assertReformatted("1 + 2", "+(1, 2)");
+assertReformatted("1 * 2 + 3 * 4", "+(*(1, 2), *(3, 4))");
+cerr `$(parseString("(f 3) * (f 7)"))\n`;
 
 cerr `ok\n`;
 

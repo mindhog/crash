@@ -23,6 +23,8 @@ import .ast DynamicList, Expr, FieldRef, FloatLiteral, FuncCall, FuncDef,
     StaticList, StringLiteral, TypeSpec, VarDef, VarRef;
 import .floats parseFloat;
 
+@import crack.ann define;
+
 const int
     TOK_EOF = 0,
     TOK_LPAREN = 1,
@@ -37,7 +39,11 @@ const int
     TOK_COLON = 10,
     TOK_ASSIGN = 11,
     TOK_COMMA = 12,
-    TOK_DOT = 13;
+    TOK_DOT = 13,
+    TOK_PLUS = 14,
+    TOK_DASH = 15,
+    TOK_STAR = 16,
+    TOK_SLASH = 17;
 
 class Token {
     int type;
@@ -77,6 +83,10 @@ class Token {
     bool isRParen() { return type == TOK_RPAREN }
     bool isSemi() { return type == TOK_SEMI }
     bool isStrLit() { return type == TOK_STRLIT }
+    bool isPlus() { return type == TOK_PLUS }
+    bool isDash() { return type == TOK_DASH }
+    bool isStar() { return type == TOK_STAR }
+    bool isSlash() { return type == TOK_SLASH }
     bool isTerminator() {
         return type == TOK_EOF || type == TOK_RCURLY || type == TOK_RPAREN ||
             type == TOK_DOT;
@@ -190,6 +200,14 @@ class Toker {
                     return __makeTok(TOK_ASSIGN, String(1, ch));
                 } else if (ch == b',') {
                     return __makeTok(TOK_COMMA, String(1, ch));
+                } else if (ch == b'+') {
+                    return __makeTok(TOK_PLUS, String(1, ch));
+                } else if (ch == b'-') {
+                    return __makeTok(TOK_DASH, String(1, ch));
+                } else if (ch == b'*') {
+                    return __makeTok(TOK_STAR, String(1, ch));
+                } else if (ch == b'/') {
+                    return __makeTok(TOK_SLASH, String(1, ch));
                 } else if (ch == b"'") {
                     state = LIT_STR;
                 } else if (ch == b'#') {
@@ -408,6 +426,12 @@ const int
     ## arguments or if it is the only expresion in a dynamic list.
     EC_MIXED = 2;
 
+# Operator precdence.
+const int
+    PRDN_BASE = 0,
+    PRDN_ADD = 1,
+    PRDN_MUL = 2;
+
 class Parser {
     Toker toker;
     Array[Token] __putback = {};
@@ -423,7 +447,7 @@ class Parser {
 
     void putBack(Token tok) { __putback.append(tok) }
 
-    Expr parseExpr(int exprCtx);
+    Expr parseExpr(int exprCtx, int precedence);
     StaticList parseStaticList(SrcLoc loc);
     DynamicList parseDynamicList(SrcLoc loc);
     Expr parseStatement();
@@ -433,7 +457,7 @@ class Parser {
         args := Array[Expr]();
         while (!(tok = getToken()).isTerminator() && !tok.isSemi()) {
             putBack(tok);
-            args.append(parseExpr(EC_SHORT));
+            args.append(parseExpr(EC_SHORT, PRDN_BASE));
         }
         if (!tok.isSemi())
             putBack(tok);
@@ -459,7 +483,7 @@ class Parser {
     ## assign_val ::= var_ref     # higher priority than long_expr
     ##            |   long_expr
     Expr parseAssignmentValue() {
-        return parseExpr(EC_MIXED);
+        return parseExpr(EC_MIXED, PRDN_BASE);
     }
 
     ## var_def ::= ident ':' type '=' expr
@@ -545,6 +569,24 @@ class Parser {
         return FieldRef(primary.loc, primary, makeIdent(tok));
     }
 
+    # binop ::= expr op expr
+    #               ^
+    # Returns null and puts back the token if precedence is higher than the
+    # required precedence.
+    Expr parseBinOp(SrcLoc loc, Expr expr, Token tok, int precedence,
+                        int requiredPrecedence) {
+        # If we're already parsing a higher precedence operator, quit here.
+        if (precedence > requiredPrecedence) {
+            putBack(tok);
+            return null;
+        }
+
+        other := parseExpr(EC_SHORT, requiredPrecedence);
+        return FuncCall(loc, VarRef(tok.getSrcLoc(), makeIdent(tok)),
+                        Array[Expr]![expr, other]
+                        );
+    }
+
     # primary ::= func_def
     #         |   var_ref
     #         |   var_def
@@ -556,8 +598,8 @@ class Parser {
     #              |   var_def
     #              |   literal
     #              |   '(' long_expr ')'
-    Expr parseExpr(int exprCtx) {
-        firstTok := tok := getToken();
+    Expr parseExpr(int exprCtx, int precedence) {
+        exprLoc := (tok := getToken()).getSrcLoc();
         Expr expr;
         bool isLiteral;
         if (tok.isIdent()) {
@@ -605,12 +647,26 @@ class Parser {
                 break;
             }
 
+            @define binOp(name, prdn) {
+                else if (tok.is$$name()) {
+                    e := parseBinOp(exprLoc, expr, tok, precedence, prdn);
+                    if (!e)
+                        return expr;
+                    expr = e;
+                    tok = getToken();
+                }
+            }
+
             # Check for a field reference.
             if (tok.isDot()) {
                 isLiteral = false;
                 expr = parseFieldRef(expr);
                 tok = getToken();
-            } else {
+            } @binOp(Plus, PRDN_ADD)
+              @binOp(Dash, PRDN_ADD)
+              @binOp(Star, PRDN_MUL)
+              @binOp(Slash, PRDN_MUL)
+              else {
                 break;
             }
         }
@@ -620,20 +676,20 @@ class Parser {
         if (isLiteral || exprCtx == EC_SHORT) {
             return expr;
         } else if (exprCtx == EC_LONG) {
-            return FuncCall(firstTok.getSrcLoc(), expr, parseArgList());
+            return FuncCall(exprLoc, expr, parseArgList());
         } else {
             # Mixed context.  Return a func call or not depending on
             # whether there are arguments.
             args := parseArgList();
             if (args)
-                return FuncCall(firstTok.getSrcLoc(), expr, args);
+                return FuncCall(exprLoc, expr, args);
             else
                 return expr;
         }
     }
 
     IfStmt parseIfStmt(Token ident) {
-        cond := parseExpr(EC_SHORT);
+        cond := parseExpr(EC_SHORT, PRDN_BASE);
         tok := getToken();
         StaticList onTrue, onFalse;
         if (tok.isLCurly()) {
@@ -669,7 +725,7 @@ class Parser {
         else if (tok.isIdent('if'))
             return parseIfStmt(tok);
         putBack(tok);
-        return parseExpr(EC_LONG);
+        return parseExpr(EC_LONG, PRDN_BASE);
     }
 
     void parseList(Array[Expr] list) {
@@ -708,7 +764,7 @@ class Parser {
         parseList(list);
         if (!(tok := getToken()).isEOF())
             throw ParseError(FStr() `Expected EOF, got $tok`);
-        return List(firstTok.getSrcLoc(), list);
+        return DynamicList(firstTok.getSrcLoc(), list);
     }
 }
 
