@@ -22,7 +22,9 @@
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.io cerr, Formatter, FStr;
-import crack.lang cmp;
+import crack.lang cmp, AssertionError;
+
+@import crack.ann impl, interface;
 
 class SrcLoc;
 SrcLoc _get(String filename, int row, int col);
@@ -153,7 +155,7 @@ class FieldRef : Expr {
     }
 }
 
-class List : Expr {
+@abstract class List : Expr {
     Array[Expr] _contents;
 
     oper init(SrcLoc loc, Array[Expr] contents) :
@@ -174,6 +176,8 @@ class List : Expr {
     }
 
     Array[Expr] getElements() { return _contents }
+
+    @abstract void foo();
 }
 
 class StringLiteral : Expr {
@@ -212,6 +216,7 @@ class DynamicList : List {
         List.formatTo(out);
         out `)`;
     }
+    void foo() {}
 }
 
 ## A list that is to be passed in to a function without being evaluated.
@@ -223,6 +228,7 @@ class StaticList : List {
         List.formatTo(out);
         out `}`;
     }
+    void foo() {}
 }
 
 class IfStmt : Expr {
@@ -377,3 +383,139 @@ class FuncDef : Expr {
         out `)$(returnType ? ' : ' + str(returnType) : '') $body`;
     }
 }
+
+@interface Visitor {
+    @abstract void onExpr(Expr expr);
+    @abstract void onIdent(Ident ident);
+    @abstract void onFieldRef(FieldRef fieldRef);
+    @abstract void onVarRef(VarRef varRef);
+    @abstract void onFuncCall(FuncCall funcCall);
+    @abstract void onFloatLiteral(FloatLiteral floatLiteral);
+    @abstract void onStringLiteral(StringLiteral stringLiteral);
+    @abstract void onIntegerLiteral(IntegerLiteral integerLiteral);
+    @abstract void onDynamicList(DynamicList list);
+    @abstract void onStaticList(StaticList list);
+    @abstract void onIfStmt(IfStmt ifStmt);
+    @abstract void onForStmt(ForStmt forStmt);
+    @abstract void onTypeSpec(TypeSpec typeSpec);
+    @abstract void onNominalType(NominalType type);
+    @abstract void onInferredType(InferredType type);
+    @abstract void onVarDef(VarDef varDef);
+    @abstract void onFuncDef(FuncDef funcDef);
+}
+
+class VisitorImpl @impl Visitor {
+    void onExpr(Expr expr) {
+        if (expr is null)
+            return;
+
+        if (e := FieldRef.cast(expr, null))
+            onFieldRef(e);
+        else if (e := VarRef.cast(expr, null))
+            onVarRef(e);
+        else if (e := FuncCall.cast(expr, null))
+            onFuncCall(e);
+        else if (e := FloatLiteral.cast(expr, null))
+            onFloatLiteral(e);
+        else if (e := StringLiteral.cast(expr, null))
+            onStringLiteral(e);
+        else if (e := IntegerLiteral.cast(expr, null))
+            onIntegerLiteral(e);
+        else if (e := StaticList.cast(expr, null))
+            onStaticList(e);
+        else if (e := DynamicList.cast(expr, null))
+            onDynamicList(e);
+        else if (e := IfStmt.cast(expr, null))
+            onIfStmt(e);
+        else if (e := ForStmt.cast(expr, null))
+            onForStmt(e);
+        else if (e := VarDef.cast(expr, null))
+            onVarDef(e);
+        else if (e := FuncDef.cast(expr, null))
+            onFuncDef(e);
+        else
+            throw AssertionError(
+                FStr() `Unknown Expr subclass $(expr.class.name)`
+            );
+    }
+
+    void onTypeSpec(TypeSpec type) {
+        if (t := NominalType.cast(type, null))
+            onNominalType(t);
+        else if (t := InferredType.cast(type, null))
+            onInferredType(t);
+        else
+            throw AssertionError(
+                FStr() `Unknown TypeSpec subclass $(type.class.name)`
+            );
+    }
+
+    void onIdent(Ident ident) {}
+
+    void onFieldRef(FieldRef fieldRef) {
+        onExpr(fieldRef.primary);
+        onIdent(fieldRef.field);
+    }
+
+    void onVarRef(VarRef varRef) {
+        onIdent(varRef.var);
+    }
+
+    void onFuncCall(FuncCall funcCall) {
+        onExpr(funcCall.func);
+        for (arg :in funcCall.args)
+            onExpr(arg);
+    }
+
+    void onFloatLiteral(FloatLiteral floatLiteral) {}
+    void onStringLiteral(StringLiteral stringLiteral) {}
+    void onIntegerLiteral(IntegerLiteral integerLiteral) {}
+
+    void __onList(List list) {
+        for (elem :in list._contents)
+            onExpr(elem);
+    }
+
+    void onDynamicList(DynamicList list) {
+        __onList(list);
+    }
+
+    void onStaticList(StaticList list) {
+        __onList(list);
+    }
+
+    void onIfStmt(IfStmt ifStmt) {
+        onExpr(ifStmt.cond);
+        onStaticList(ifStmt.onTrue);
+        if (ifStmt.onFalse !is null)
+            onStaticList(ifStmt.onFalse);
+    }
+
+    void onForStmt(ForStmt forStmt) {
+        onExpr(forStmt.initializer);
+        onStaticList(forStmt.cond);
+        onStaticList(forStmt.doAfter);
+        onStaticList(forStmt.block);
+    }
+
+    void onNominalType(NominalType type) {
+        onIdent(type.name);
+    }
+
+    void onInferredType(InferredType type) {}
+
+    void onVarDef(VarDef varDef) {
+        onIdent(varDef.name);
+        onTypeSpec(varDef.type);
+        onExpr(varDef.initializer);
+    }
+
+    void onFuncDef(FuncDef funcDef) {
+        onIdent(funcDef.name);
+        for (arg :in funcDef.args)
+            onVarDef(arg);
+        onTypeSpec(funcDef.returnType);
+        onStaticList(funcDef.body);
+    }
+}
+

@@ -1,0 +1,214 @@
+# Copyright 2020 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+## General language model features.
+
+import crack.cont.array Array;
+import crack.cont.treemap TreeMap;
+import crack.io cerr, Formatter;
+import .ast Expr, FloatLiteral, FuncDef, IntegerLiteral, Node, NominalType,
+    StringLiteral, VarDef, VisitorImpl;
+
+@import crack.ann cvars;
+
+class Def {
+    @cvars {
+        String name;
+    }
+}
+
+class Type : Def {
+    oper init(String name) : Def(name) {}
+
+    bool compatibleWith(Type other) {
+        return this is other;
+    }
+
+    ## Return the type name to be displayed in error messages.
+    String getDisplayName() {
+        return name;
+    }
+}
+
+class GenericType : Def {
+    oper init(String name) : Def(name) {}
+}
+
+## A composite type is an instantiated GenericType.
+class CompositeType : Type {
+    oper init(String name) : Type(name) {}
+}
+
+class Var : Def {
+    Type type;
+
+    ## Variable initializer or null.
+    ##
+    ## It's not clear how this should be defined, it may be specific to the
+    ## code generator -- in other words, we may want to allow the code
+    ## generator to store whatever kind of object is useful for generating the
+    ## default value here.  For now, we're going with an expression.
+    Expr initializer;
+
+    oper init(String name, Type type) : Def(name), type = type {}
+}
+
+alias DefMap = TreeMap[String, Def];
+
+class Func : Def {
+    Type returnType;
+    Array[Var] args;
+
+    oper init(String name, Type returnType, Array[Var] args) :
+        Def(name),
+        returnType = returnType,
+        args = args {
+    }
+}
+
+class CompileContext {
+    Type stringLiteralType, integerLiteralType, floatLiteralType;
+    DefMap defs;
+    Array[DefMap] stack = {};
+
+    oper init() {}
+
+    @static CompileContext makeGlobal() {
+        ctx := CompileContext();
+        ctx.defs = DefMap();
+        ctx.defs['String'] = ctx.stringLiteralType = Type('String');
+        ctx.defs['Int'] = ctx.integerLiteralType = Type('Int');
+        ctx.defs['UInt'] = Type('UInt');
+        ctx.defs['Float'] = ctx.floatLiteralType = Type('Float');
+        ctx.stack.append(ctx.defs);
+        return ctx;
+    }
+
+    void define(Def def) {
+        defs[def.name] = def;
+    }
+
+    ## Returns null if the name is undefined.
+    Def lookUp(String name) {
+        for (int i = stack.count() - 1; i > -1; --i) {
+            def := stack[i].get(name);
+            if (def)
+                return def;
+        }
+        return null;
+    }
+
+    ## Push a new nested context.
+    void pushNew() {
+        stack.append(defs = DefMap());
+    }
+
+    ## Pop a new new nested context.
+    void pop() {
+        stack.pop();
+    }
+}
+
+class TypeCheckVisitor : VisitorImpl {
+
+    ## The type of the last expression processed by the visitor.
+    Type type;
+
+    ## The last declared type processed by the visitor.  For a variable
+    ## definition, this is the declared type of the variable (same as "type"
+    ## if there was no explicit type declaration).  For a function, it is the
+    ## return type.
+    Type declaredType;
+
+    ## The last variable definition.
+    Var varDef;
+
+    ## The last function definition.
+    Func funcDef;
+
+    Expr value;
+
+    Formatter err() { return cerr }
+
+    @cvars {
+        CompileContext context;
+    }
+
+    void onNominalType(NominalType type) {
+        if (type) {
+            def := context.lookUp(type.name.text);
+            if (!def)
+                err() `Undefined type $(type.name.text)`;
+            else if (!(declaredType = Type.cast(def, null)))
+                err() `$(type.name.text) is not a type`;
+        }
+    }
+
+    void onVarDef(VarDef varDef) {
+        VisitorImpl.onVarDef(varDef);
+        context.define(this.varDef = Var(varDef.name.text, declaredType));
+        if (declaredType && type && !type.compatibleWith(declaredType))
+            err() I`Expression of type $(type.getDisplayName()) can not be \
+                    used as initializer for variable of type \
+                    $(declaredType.getDisplayName())`;
+    }
+
+    void onStringLiteral(StringLiteral lit) {
+        type = context.stringLiteralType;
+    }
+
+    void onIntegerLiteral(IntegerLiteral lit) {
+        type = context.integerLiteralType;
+    }
+
+    void onFloatLiteral(FloatLiteral lit) {
+        type = context.floatLiteralType;
+    }
+
+    void onFuncDef(FuncDef funcDef) {
+        context.pushNew();
+        onIdent(funcDef.name);
+
+        args := Array[Var]();
+        for (arg :in funcDef.args) {
+            onVarDef(arg);
+            args.append(varDef);
+        }
+
+        # Will populate the return type.
+        onTypeSpec(funcDef.returnType);
+        retType := declaredType;
+
+        onStaticList(funcDef.body);
+
+        # If there was no return type, use the last value type in the body.
+        # TODO: this is potentially wrong.  If there are early return
+        # statements in the function we'll want to make the return type the
+        # most general type of any exit path.
+        if (!retType)
+            retType = type;
+
+        this.funcDef = Func(funcDef.name ? funcDef.name.text : null,
+                            declaredType,
+                            args
+                            );
+        if (funcDef.name)
+            context.define(this.funcDef);
+        context.pop();
+    }
+}
+
+void checkTypes(Node expr) {
+    TypeCheckVisitor(CompileContext.makeGlobal()).onExpr(Expr.cast(expr));
+}
