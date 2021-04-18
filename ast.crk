@@ -21,6 +21,7 @@
 
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
+import crack.fieldset HashMapFieldSet;
 import crack.io cerr, Formatter, FStr;
 import crack.lang cmp, AssertionError;
 
@@ -81,7 +82,7 @@ SrcLoc _get(String filename, int row, int col) {
     }
 }
 
-class Node {
+class Node : HashMapFieldSet {
     SrcLoc loc;
     oper init(SrcLoc loc) : loc = loc {}
 }
@@ -518,4 +519,3 @@ class VisitorImpl @impl Visitor {
         onStaticList(funcDef.body);
     }
 }
-

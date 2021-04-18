@@ -16,11 +16,16 @@
 
 import crack.cont.array Array;
 import crack.cont.treemap TreeMap;
-import crack.io cerr, Formatter;
-import .ast Expr, FloatLiteral, FuncDef, IntegerLiteral, Node, NominalType,
-    StringLiteral, VarDef, VisitorImpl;
+import crack.lang FieldSet;
+import crack.io cerr, Formatter, FStr;
+import crack.lang AssertionError, Exception;
+import .ast DynamicList, Expr, FieldRef, FloatLiteral, ForStmt, FuncCall,
+    FuncDef, Ident, InferredType, IfStmt, IntegerLiteral, List, Node,
+    NominalType, StaticList, StringLiteral, TypeSpec, VarDef, VarRef,
+    Visitor, VisitorImpl;
 
-@import crack.ann cvars;
+@import crack.ann assert, cvars, impl;
+@import crack.fieldset_ann fieldset_accessors;
 
 class Def {
     @cvars {
@@ -29,6 +34,8 @@ class Def {
 }
 
 class Type : Def {
+    @fieldset_accessors(Type)
+
     oper init(String name) : Def(name) {}
 
     bool compatibleWith(Type other) {
@@ -51,6 +58,7 @@ class CompositeType : Type {
 }
 
 class Var : Def {
+    @fieldset_accessors(Var);
     Type type;
 
     ## Variable initializer or null.
@@ -64,7 +72,32 @@ class Var : Def {
     oper init(String name, Type type) : Def(name), type = type {}
 }
 
-alias DefMap = TreeMap[String, Def];
+## Tracks information about the current return type.  This may be modified by
+## return statements if it was not explicitly declared.
+class ReturnType {
+
+    ## The return type of the current context.  May be null if a return type
+    ## hasn't been discovered yet.
+    Type returnType;
+
+    ## If true, the return type was explicitly declared.  If false, it was
+    ## inferred and may be replaced by the most specific compatible type.
+    bool explicitReturnType;
+
+    oper init(Type returnType) : returnType = returnType {}
+}
+
+class DefMap : TreeMap[String, Def] {
+
+    ## Tracks the current return type.  This may be null if we are not in a
+    ## function scope.
+    ReturnType returnType;
+
+    oper init(DefMap parent) {
+        if (parent)
+            returnType = parent.returnType;
+    }
+}
 
 class Func : Def {
     Type returnType;
@@ -77,8 +110,14 @@ class Func : Def {
     }
 }
 
+class Error : Exception {
+    oper init(String text) : Exception(text) {}
+}
+
 class CompileContext {
-    Type stringLiteralType, integerLiteralType, floatLiteralType;
+    Type stringLiteralType, integerLiteralType, floatLiteralType,
+         # TODO: functionType needs to be a generic.
+         functionType;
     DefMap defs;
     Array[DefMap] stack = {};
 
@@ -86,11 +125,12 @@ class CompileContext {
 
     @static CompileContext makeGlobal() {
         ctx := CompileContext();
-        ctx.defs = DefMap();
+        ctx.defs = DefMap(null);
         ctx.defs['String'] = ctx.stringLiteralType = Type('String');
         ctx.defs['Int'] = ctx.integerLiteralType = Type('Int');
         ctx.defs['UInt'] = Type('UInt');
         ctx.defs['Float'] = ctx.floatLiteralType = Type('Float');
+        ctx.defs['Function'] = ctx.functionType = Type('Function');
         ctx.stack.append(ctx.defs);
         return ctx;
     }
@@ -111,33 +151,69 @@ class CompileContext {
 
     ## Push a new nested context.
     void pushNew() {
-        stack.append(defs = DefMap());
+        stack.append(defs = DefMap(defs));
     }
 
     ## Pop a new new nested context.
     void pop() {
         stack.pop();
     }
+
+    ## Set the return type of the current context.
+    void setExplicitReturnType(Type returnType) {
+        @assert(!defs.returnType);
+        defs.returnType = ReturnType(returnType);
+    }
+
+    ## Set the inferred return type.  This gets called when we encounter a
+    ## return statement.
+    ## - if there is an explicit return type for the context, this just
+    ##   verifies that the new type is compatible with it.
+    ## - if there is already an implicit return type for the context, this
+    ##   sets the return type to the most specific type that is compatible
+    ##   with both.
+    void setInferredReturnType(Type returnType) {
+        # Make sure we're in a context that allows a return.
+        if (!defs.returnType)
+            throw Error(I'Return is not allowed in a non-function context.');
+
+        # If there's currently no return type, set it now.
+        info := defs.returnType;
+        if (!info.returnType) {
+            info.returnType = returnType;
+            return;
+        }
+
+        # If there's an explicit return type, make sure that the inferred
+        # return type is compatible.
+        if (info.explicitReturnType) {
+            if (!returnType.compatibleWith(info.returnType))
+                throw Error(FStr() I`Type $returnType is not compatible with \
+                                     the defined return type of \
+                                     $(info.returnType)`);
+            return;
+        }
+
+        # There's an implicit return type.
+
+        # If the new type is compatible, we're done.
+        if (returnType.compatibleWith(info.returnType))
+            return;
+
+        # If the existing return type is compatible with the new type, change
+        # it to the new type.
+        else if (info.returnType.compatibleWith(returnType))
+            info.returnType = returnType;
+
+        # Otherwise we have to find the most specific common ancestor type.
+        # TODO: implement
+        else
+            throw Error(I'XXX common ancestor discovery not implemented yet.');
+    }
 }
 
+## T must extend VisitorReturnTypes.
 class TypeCheckVisitor : VisitorImpl {
-
-    ## The type of the last expression processed by the visitor.
-    Type type;
-
-    ## The last declared type processed by the visitor.  For a variable
-    ## definition, this is the declared type of the variable (same as "type"
-    ## if there was no explicit type declaration).  For a function, it is the
-    ## return type.
-    Type declaredType;
-
-    ## The last variable definition.
-    Var varDef;
-
-    ## The last function definition.
-    Func funcDef;
-
-    Expr value;
 
     Formatter err() { return cerr }
 
@@ -146,34 +222,51 @@ class TypeCheckVisitor : VisitorImpl {
     }
 
     void onNominalType(NominalType type) {
-        if (type) {
-            def := context.lookUp(type.name.text);
-            if (!def)
-                err() `Undefined type $(type.name.text)`;
-            else if (!(declaredType = Type.cast(def, null)))
-                err() `$(type.name.text) is not a type`;
-        }
+        VisitorImpl.onNominalType(type);
+        def := context.lookUp(type.name.text);
+        Type declaredType;
+        if (!def)
+            err() `Undefined type $(type.name.text)`;
+        else if (!(declaredType = Type.cast(def, null)))
+            err() `$(type.name.text) is not a type`;
+        declaredType.putIn(type);
     }
 
     void onVarDef(VarDef varDef) {
         VisitorImpl.onVarDef(varDef);
-        context.define(this.varDef = Var(varDef.name.text, declaredType));
-        if (declaredType && type && !type.compatibleWith(declaredType))
-            err() I`Expression of type $(type.getDisplayName()) can not be \
-                    used as initializer for variable of type \
-                    $(declaredType.getDisplayName())`;
+
+        Type type;
+
+        if (varDef.type) {
+            type = Type.get(varDef.type);
+            if (varDef.initializer) {
+                # Make sure this is compatible with the initializer type.
+                initializerType := Type.get(varDef.initializer);
+                if (!initializerType.compatibleWith(type))
+                    err() I`Expression of type \
+                            $(initializerType.getDisplayName()) can not \
+                            be used as initializer for variable of type \
+                            $(type.getDisplayName())`;
+            }
+        } else {
+            type = Type.get(varDef.initializer)
+        }
+
+        context.define(var := Var(varDef.name.text, type));
+        type.putIn(varDef);
+        var.putIn(varDef);
     }
 
     void onStringLiteral(StringLiteral lit) {
-        type = context.stringLiteralType;
+        context.stringLiteralType.putIn(lit);
     }
 
     void onIntegerLiteral(IntegerLiteral lit) {
-        type = context.integerLiteralType;
+        context.integerLiteralType.putIn(lit);
     }
 
     void onFloatLiteral(FloatLiteral lit) {
-        type = context.floatLiteralType;
+        context.floatLiteralType.putIn(lit);
     }
 
     void onFuncDef(FuncDef funcDef) {
@@ -183,29 +276,25 @@ class TypeCheckVisitor : VisitorImpl {
         args := Array[Var]();
         for (arg :in funcDef.args) {
             onVarDef(arg);
-            args.append(varDef);
+            args.append(Var.get(arg));
         }
 
         # Will populate the return type.
         onTypeSpec(funcDef.returnType);
-        retType := declaredType;
+        retType := funcDef.returnType ? Type.get(funcDef.returnType) : null;
+        context.setExplicitReturnType(retType);
 
         onStaticList(funcDef.body);
 
         # If there was no return type, use the last value type in the body.
-        # TODO: this is potentially wrong.  If there are early return
-        # statements in the function we'll want to make the return type the
-        # most general type of any exit path.
         if (!retType)
-            retType = type;
+            retType = Type.get(funcDef.body);
 
-        this.funcDef = Func(funcDef.name ? funcDef.name.text : null,
-                            declaredType,
-                            args
-                            );
+        func := Func(funcDef.name ? funcDef.name.text : null, retType, args);
         if (funcDef.name)
-            context.define(this.funcDef);
+            context.define(func);
         context.pop();
+        context.functionType.putIn(funcDef);
     }
 }
 
