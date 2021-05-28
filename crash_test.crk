@@ -190,5 +190,23 @@ try {
     second line
     ") == '\nfirst line\nsecond line\n');
 
+# Test for the case where an object context is used multiple times in the
+# stack.
+@assert(eval(I"\
+    var result val
+    var o [object {
+        def foo {} {
+            # Dereferencing the 'o' variable here is key, that's what pushes
+            # the object's stack frame a second time.
+            o bar
+        }
+
+        def bar {} {
+            give $result
+        }
+    }]
+    o foo
+    ") == 'val');
+
 cout `ok\n`;
 

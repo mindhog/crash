@@ -76,19 +76,27 @@ class CrashError : Exception {
 }
 
 ## A variable dictionary.
-class VarDict : HashMap[String, Value] {
+alias VarDict = HashMap[String, Value];
 
-    ## The parent of a VarDict is the VarDict of the context in which the
+## A lexical context.
+class LexCtx {
+    ## The parent of a LexCtx is the LexCtx of the context in which the
     ## function is defined.
-    VarDict parent;
+    LexCtx parent;
+
+    ## The variable dictionary.
+    VarDict __vars = {};
 
     oper init() {}
-    oper init(VarDict parent) : parent = parent {}
+    oper init(LexCtx parent) : parent = parent {}
+    oper init(LexCtx parent, VarDict vars) : parent = parent, __vars = vars {}
+
+    @final VarDict oper .vars() { return __vars }
 
     @final Value lookUp(String name) {
-        val := get(name, null);
+        val := __vars.get(name, null);
         if (val is null) {
-            if (parent != null)
+            if (parent !is null)
                 return parent.lookUp(name);
             else
                 return null
@@ -98,7 +106,7 @@ class VarDict : HashMap[String, Value] {
     }
 
     @final void define(String name, Value val) {
-        this[name] = val;
+        __vars[name] = val;
     }
 
     @final void set(String name, Object val) {
@@ -109,14 +117,37 @@ class VarDict : HashMap[String, Value] {
                             );
         holder.set(val);
     }
+
+    ## Utility function, dumps up to n levels of the Lexical context stack
+    ## starting with this node.
+    @final void dump(int n) {
+        cur := this;
+        cerr `==== stack frame ====\n`;
+        while (cur !is null && n) {
+            temp := FStr() `$cur`;
+            if (temp.size > 30)
+                temp = temp.slice(0, 30);
+            temp = wsplit(temp).join(' ');
+            cerr `$(uintz(cur)) $temp.vars\n`;
+            cur = cur.parent;
+            --n;
+        }
+
+        if (cur !is null)
+            cerr `stack continues!`;
+    }
 }
 
 # A stack frame.
 class Frame {
     Frame parent;
 
-    ## The variable dictionary.
-    VarDict vars = {};
+    ## The lexical context, which wraps the variable dictionary.  'vars'
+    ## tracks its own parent lineage which typically mirrors that of the
+    ## Frame except across a function call: in a function call, the parent of
+    ## the frame traces the runtime call stack. But the parents of the var
+    ## dict is the _lexical context_ in which the function is defined.
+    LexCtx vars = {};
 
     ## The current block.
     Array[Value] block;
@@ -126,8 +157,8 @@ class Frame {
     uint ip;
 
     oper init() {}
-    oper init(Frame parent) : parent = parent, vars = VarDict(parent.vars) {}
-    oper init(Frame parent, VarDict vars) : parent = parent, vars = vars {}
+    oper init(Frame parent) : parent = parent, vars = LexCtx(parent.vars) {}
+    oper init(Frame parent, LexCtx vars) : parent = parent, vars = vars {}
 }
 
 # Function to return a Value for an object (essentially, encapsulating the
@@ -161,8 +192,11 @@ class EvalContext {
 
     oper init() {}
 
-    ## Copies another EvalContext.
-    oper init(EvalContext other) : frame = other.frame {}
+    ## Creates a toplevel EvalContext from another EvalContext.  This consists
+    ## of a single frame with no parent (because it is at the bottom of the
+    ## call stack) and the VarDict from the current frame of the other context
+    ## (thus preserving the lexical context).
+    oper init(EvalContext other) : frame = Frame(null, other.frame.vars) {}
 
     @final Value lookUp(String name) {
         return frame.vars.lookUp(name);
@@ -176,11 +210,15 @@ class EvalContext {
         frame.vars.set(name, val);
     }
 
+    @final void dump() {
+        frame.vars.dump(20);
+    }
+
     @final void pushFuncFrame() {
         frame = Frame(frame);
     }
 
-    @final void pushFuncFrame(VarDict vars) {
+    @final void pushFuncFrame(LexCtx vars) {
         vars.parent = frame.vars;
         frame = Frame(frame, vars);
     }
@@ -456,11 +494,12 @@ class Obj : Builtin {
         if (!method)
             throw Exception('Method names must be strings.');
 
-        methodObj := vars.lookUp(method);
+        methodObj := vars.get(method);
         if (!methodObj)
             throw Exception(FStr() `Undefined method: $method`);
 
-        context.pushFuncFrame(vars);
+        lexCtx := LexCtx(null, vars);
+        context.pushFuncFrame(lexCtx);
         Object result;
         try {
             result = methodObj.invoke(context, args.subarray(1));
@@ -475,7 +514,7 @@ class Obj : Builtin {
 
     ## Define a name in the object's variable dictionary.
     @final void define(String name, Value val) {
-        vars.define(name, val);
+        vars[name] = val;
     }
 
     void formatTo(Formatter out) {
@@ -738,14 +777,14 @@ class ActiveFunc : Value {
     ## The function name.
     String name;
 
-    ## Carries around the VarDict from where the function was instantiated.
-    VarDict ownerVars;
+    ## Carries around the LexCtx from where the function was instantiated.
+    LexCtx ownerVars;
 
     Array[String] argVars;
     Block body;
     String doc;
 
-    oper init(String name, VarDict ownerVars, Array[String] argVars,
+    oper init(String name, LexCtx ownerVars, Array[String] argVars,
               Block body,
               String doc
               ) :
@@ -900,7 +939,7 @@ class ObjectCmd : Builtin {
             context.popFuncFrame();
             throw Exception(ex.text);
         }
-        vars := context.frame.vars;
+        vars := context.frame.vars.vars;
         context.popFuncFrame();
 
         return Obj(vars);
@@ -968,7 +1007,7 @@ class EvalfileCmd : Builtin {
         context.pushFuncFrame();
         parseString(contents).evaluate(context);
         if (!context.yield) {
-            result := Obj(context.frame.vars);
+            result := Obj(context.frame.vars.vars);
             context.popFuncFrame();
             return result;
         } else {
@@ -993,7 +1032,7 @@ class SourceCmd : Builtin {
         contents := makePath(name).readAll();
         parseString(contents).evaluate(context);
         if (!context.yield) {
-            result := Obj(context.frame.vars);
+            result := Obj(context.frame.vars.vars);
             return result;
         } else {
             return null;

@@ -97,7 +97,7 @@ class HelpCmd : Builtin {
         if (!args) {
             frame := context.frame;
             while (frame) {
-                for (def :in frame.vars) {
+                for (def :in frame.vars.vars) {
                     cout `$(def.key):\n`;
                     doc := def.val.getDoc();
                     m := BLANKLINE_RX.search(doc);
