@@ -15,7 +15,8 @@
 import crack.cont.array Array;
 import crack.io cout, cerr, Formatter;
 import crack.lang cmp, Exception;
-import crash createRootContext, eval, Builtin, CrashError, EvalContext, Obj, Value;
+import crash createRootContext, eval, Builtin, CrashError, EvalContext, Obj,
+    ObjOf, Value;
 import types IntObj, BoolObj, FloatObj;
 import repl repl;
 
@@ -109,6 +110,30 @@ root.defineConverter(Foo, wrapFoo);
 @assert(withDocs().getDoc() == ' Doc line 1\012 Doc line 2\012');
 
 @assert(makeFoo().getDoc() == '');
+
+# Test that we can convert to a base class.
+
+class A {
+    int val;
+    oper init(int val) : val = val {}
+}
+
+class B : A {
+    oper init(int val) : A(val) {}
+}
+
+alias BObj = ObjOf[B];
+@function BObj makeB(int val) {
+    return ObjOf[B](B(val));
+}
+
+@function int getAVal(A a) {
+    return a.val;
+}
+
+root.define('B', makeB());
+root.define('getAVal', getAVal());
+@assert(eval('getAVal [B 100]', root) == IntObj(100));
 
 cout `ok\n`;
 

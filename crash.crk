@@ -124,11 +124,11 @@ class LexCtx {
         cur := this;
         cerr `==== stack frame ====\n`;
         while (cur !is null && n) {
-            temp := FStr() `$cur`;
+            temp := FStr() `$(cur.vars)`;
             if (temp.size > 30)
                 temp = temp.slice(0, 30);
             temp = wsplit(temp).join(' ');
-            cerr `$(uintz(cur)) $temp.vars\n`;
+            cerr `$(uintz(cur)) $temp\n`;
             cur = cur.parent;
             --n;
         }
@@ -535,7 +535,7 @@ class ObjOf[T] : Obj {
     }
 
     Object convertTo(Class cls) {
-        if (cls is T)
+        if (T.isSubclass(cls))
             return __inst;
         else
             return Obj.convertTo(cls);
