@@ -286,11 +286,35 @@ Obj wrapIterator(Iter iter) {
     return self[index];
 }
 
-Obj makeArrayObj(Array[Object] array) {
+alias ArrayObj = ObjOf[Array[Object]];
+ArrayObj makeArrayObj(Array[Object] array);
+
+## Append a new element to an array, returns the array.
+@function(Array[Object]) ArrayObj Array_append(Object elem) {
+    self.append(elem);
+    return makeArrayObj(self);
+}
+
+## Insert a new element at a specific index in the array, returns the array.
+@function(Array[Object]) ArrayObj Array_insert(int index, Object elem) {
+    self.insert(index, elem);
+    return makeArrayObj(self);
+}
+
+## Delete the element at the given index in  the array, returns the array.
+@function(Array[Object]) ArrayObj Array_delete(int index) {
+    self.delete(index);
+    return makeArrayObj(self);
+}
+
+ArrayObj makeArrayObj(Array[Object] array) {
     result := ObjOf[Array[Object]](array);
     result.define('iter', Array_iter(array));
     result.define('count', Array_count(array));
     result.define('get', Array_get(array));
+    result.define('append', Array_append(array));
+    result.define('insert', Array_insert(array));
+    result.define('delete', Array_delete(array));
     return result;
 }
 
