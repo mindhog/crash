@@ -64,6 +64,10 @@ Object ev(String code) {
 @assert(ev("[[array 1 2 3] iter] count") == IntObj(3));
 @assert(ev("[[array] iter] count") == IntObj(0));
 
+@assert(ev("[array a b c] get 0") == 'a');
+@assert(ev("[array a b c] get 2") == 'c');
+@assert(ev("[array a b c] get -1") == 'c');
+
 @assert(ev("[[map first 100 second 200] iter] each x {
                 p [x key]
                 p [x val]

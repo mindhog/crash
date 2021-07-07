@@ -282,10 +282,15 @@ Obj wrapIterator(Iter iter) {
     return self.count();
 }
 
+@function(Array[Object]) Object Array_get(int index) {
+    return self[index];
+}
+
 Obj makeArrayObj(Array[Object] array) {
     result := ObjOf[Array[Object]](array);
     result.define('iter', Array_iter(array));
     result.define('count', Array_count(array));
+    result.define('get', Array_get(array));
     return result;
 }
 
