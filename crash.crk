@@ -522,7 +522,7 @@ class Obj : Builtin {
     }
 
     Object convertTo(Class cls) {
-        return cls is Obj ? this : null;
+        return this.isa(cls) ? this : null;
     }
 }
 
@@ -550,7 +550,7 @@ Object convert(Object inst, Class cls) {
 }
 
 Value createValueWrapper(EvalContext context, Object obj) {
-    if (converter := context.getConverter(obj.class))
+    if (obj && (converter := context.getConverter(obj.class)))
         return converter(context, obj);
     else
         return Obj();

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import crack.cont.array Array;
-import crack.io cout, cerr, Formatter;
+import crack.io cout, cerr, Formatter, FStr;
 import crack.lang cmp, Exception;
 import crash createRootContext, eval, Builtin, CrashError, EvalContext, Obj,
     ObjOf, Value;
@@ -134,6 +134,13 @@ alias BObj = ObjOf[B];
 root.define('B', makeB());
 root.define('getAVal', getAVal());
 @assert(eval('getAVal [B 100]', root) == IntObj(100));
+
+# Verify that crash objects can be used as crack objects.
+@function String formatObj(Object obj) {
+    return FStr() `$obj`;
+}
+root.define('formatObj', formatObj());
+@assert(eval('formatObj [object {}]', root) == 'Obj([])');
 
 cout `ok\n`;
 
