@@ -146,6 +146,13 @@ try {
 ") == 'test data');
 
 @assert(eval("
+    var tm [load_module testmod.crash]
+    tm setVal NewValue
+    var tm2 [load_module testmod.crash]
+    tm2 getVal
+") == 'NewValue');
+
+@assert(eval("
     source testmod.crash
     echo 'test data'
 ") == 'test data');

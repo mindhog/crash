@@ -985,16 +985,10 @@ class EvalfileCmd : Builtin {
             Evaluates the file and returns the module as an object:
             evalfile <filename>
 
-            You may import symbols defined in the file from the result, for
-            example:
-                import [evalfile foo.crash] bar baz
-
-            Alternately, you can simply assign the result to a variable which
-            becomes a sort of namespace:
-                var foo [evalfile foo.crash]
-                foo bar
-
-            The file is evaluated in a subcontext of the current context.
+            You generally want to use "load_module" instead (which has similar
+            semantics, but returns the existing module object if it has
+            already been loaded).  Use "evalfile" to create new, discrete,
+            instances of a module.
             ';
     }
 
@@ -1016,6 +1010,55 @@ class EvalfileCmd : Builtin {
     }
 }
 
+_moduleMap := HashMap[String, Obj]();
+
+## Loads the named module if it is not already loaded and returns its module
+## object.  This should be used in preference to evalfile for modules, as it
+## reuses an existing instance of the module instead of loading a new one.
+class LoadModuleCmd : Builtin {
+
+    String getDoc() {
+        return I'\
+            Returns the named module as an object, loading the file (ala
+            "evalfile") if it is not already loaded:
+            load_module <filename>
+
+            You may import symbols defined in the file from the result, for
+            example:
+                import [load_module foo.crash] bar baz
+
+            Alternately, you can simply assign the result to a variable which
+            becomes a sort of namespace:
+                var foo [load_module foo.crash]
+                foo bar
+
+            The file is evaluated in a subcontext of the current context.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 1)
+            throw Exception('Usage: evalfile <filename>');
+
+        name := String.cast(args[0]);
+
+        if (mod := _moduleMap.get(name))
+            return mod;
+
+        contents := makePath(name).readAll();
+        context.pushFuncFrame();
+        parseString(contents).evaluate(context);
+        if (!context.yield) {
+            result := Obj(context.frame.vars.vars);
+            context.popFuncFrame();
+            _moduleMap[name] = result;
+            return result;
+        } else {
+            return null;
+        }
+    }
+}
+
 ## Evaluate a file in the current context.  Returns zero.
 class SourceCmd : Builtin {
     String getDoc() {
@@ -1030,9 +1073,15 @@ class SourceCmd : Builtin {
 
         name := String.cast(args[0]);
         contents := makePath(name).readAll();
+
+        # Push a func frame using the existing variable set so any variables
+        # defined in the source file are stored locally.
+        context.pushFuncFrame(context.frame.vars);
+
         parseString(contents).evaluate(context);
         if (!context.yield) {
             result := Obj(context.frame.vars.vars);
+            context.popFuncFrame();
             return result;
         } else {
             return null;
@@ -1499,6 +1548,7 @@ EvalContext createRootContext() {
     ctx.define('object', ObjectCmd());
     ctx.define('import', ImportCmd());
     ctx.define('evalfile', EvalfileCmd());
+    ctx.define('load_module', LoadModuleCmd());
     ctx.define('source', SourceCmd());
     ctx.define('proc', ProcCmd());
     ctx.define('if', IfCmd());

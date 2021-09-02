@@ -15,3 +15,13 @@
 def echo {arg} {
     give $arg
 }
+
+var val ''
+
+def setVal {newVal} {
+    set val $newVal
+}
+
+def getVal {} {
+    give $val
+}
