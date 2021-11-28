@@ -63,8 +63,7 @@ String convertArg(Arg arg, int index) {
     else if (arg.type == 'float')
         return FStr() `FloatObj.convert(args[$index]).val`;
     else
-        return FStr() I`$(arg.type).cast(convert(args[$index], $(arg.type)), \
-                        null)`;
+        return FStr() I`$(arg.type).cast(convert(args[$index], $(arg.type)))`;
 }
 
 String convertResult(String crackType) {

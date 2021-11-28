@@ -142,6 +142,13 @@ root.define('getAVal', getAVal());
 root.define('formatObj', formatObj());
 @assert(eval('formatObj [object {}]', root) == 'Obj([])');
 
+# Verify that we throw an exception when unable to convert.
+try {
+    eval('getAVal die', root);
+    @assert(false && 'No exception thrown on bad object type.');
+} catch (CrashError ex) {
+}
+
 cout `ok\n`;
 
 
