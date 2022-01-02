@@ -12,17 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import crack.io cout, cerr;
+import crack.cont.array Array;
+import crack.io cout, cerr, StringFormatter;
 import crack.lang Exception;
-import crash createRootContext, eval, parseString;
+import crash createRootContext, eval, parseString, Builtin, EvalContext,
+    ANY_TYPE, API, PPI;
 import stdlib stdlib;
 import types BoolObj;
 
 @import crack.ann assert;
 
+class TestFunc : Builtin {
+    Object invoke(EvalContext context, Array[Object] args) {
+        return null;
+    }
+
+    API getParmInfo() {
+        return API![
+            PPI('a', String),
+            PPI('foo', ANY_TYPE),
+            PPI('rest', Object, true)
+        ];
+    }
+
+    String getDoc() {
+        return I'\
+            Doc string.
+
+            This is the document body.
+            ';
+    }
+}
+
 Object ev(String code) {
     ctx := createRootContext();
     ctx.define('stdlib', stdlib());
+    ctx.define('testfunc', TestFunc());
     return eval(code, ctx);
 }
 
@@ -36,7 +61,6 @@ result := ev(I"
     format $data [src readAll]
     ");
 @assert(result == 'test string\ntest string\n');
-cerr `ok\n`;
 
 result = ev(I"
     import [stdlib] open exists
@@ -67,3 +91,21 @@ result = ev(I"
     def f {} 'function documentation' { print foo }
     doc [lookUp f]
     ") == 'function documentation');
+
+# Test help by capturing standard output.
+oldCout := cout;
+cout = capturedOut := StringFormatter();
+ev(I"\
+    import [stdlib] help
+    help testfunc
+    "
+);
+cout = oldCout;
+@assert(capturedOut.string() ==
+        'testfunc a:String foo rest:Object...:\012'
+        '    Doc string.\012'
+        '    \012'
+        '    This is the document body.\012'
+        );
+
+cerr `ok\n`;

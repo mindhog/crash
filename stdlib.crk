@@ -20,10 +20,13 @@ import crack.fs makePath;
 import crack.io cout, Formatter, FStr, Reader, Seekable, Writer;
 import crack.lang AppendBuffer, Exception;
 import crack.regex Regex;
+import crack.runtime runtimeSleep = sleep;
 import crack.strutil split;
-import .crash createRootContext, eval, Builtin, EvalContext, Obj, Value;
+import .crash createRootContext, eval, Builtin, EvalContext, Obj, Value,
+    ParmInfo, ANY_TYPE;
 import .types BoolObj, IntObj;
 
+@import crack.ann cvars;
 @import .ann function;
 
 @function(Reader) String read(int bytes) {
@@ -73,12 +76,29 @@ class ValueError : Exception {
     return result;
 }
 
+## Sleep for some number of seconds.
+@function int sleep(int seconds) {
+    runtimeSleep(seconds);
+    return 0;
+}
+
 const BLANKLINE_RX := Regex(r'\n\s*\n');
 
 ## Indents a multi-line string.
 void indent(Formatter out, String data) {
     for (line :in split(rstrip(data), b'\n'))
         out `    $(lstrip(line))\n`;
+}
+
+class ParmFormatter {
+    @cvars {
+        Array[ParmInfo] parms;
+    }
+
+    void formatTo(Formatter out) {
+        for (parm :in parms)
+            out ` $parm`;
+    }
 }
 
 class HelpCmd : Builtin {
@@ -98,7 +118,7 @@ class HelpCmd : Builtin {
             frame := context.frame;
             while (frame) {
                 for (def :in frame.vars.vars) {
-                    cout `$(def.key):\n`;
+                    cout `$(def.key)$(ParmFormatter(def.val.getParmInfo())):\n`;
                     doc := def.val.getDoc();
                     m := BLANKLINE_RX.search(doc);
                     if (m)
@@ -115,7 +135,7 @@ class HelpCmd : Builtin {
                     if (!val) {
                         cout `$command undefined\n`;
                     } else {
-                        cout `$(command):\n`;
+                        cout `$(command)$(ParmFormatter(val.getParmInfo())):\n`;
                         indent(cout, val.getDoc());
                     }
                 } else if (val := Value.cast(command)) {
@@ -171,6 +191,7 @@ class LookUpCmd : Builtin {
 @function Obj stdlib() {
     obj := Obj();
     obj.define('open', open());
+    obj.define('sleep', sleep());
     obj.define('doc', doc());
     obj.define('help', HelpCmd());
     obj.define('lookUp', LookUpCmd());
