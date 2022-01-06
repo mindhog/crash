@@ -540,6 +540,12 @@ class ObjOf[T] : Obj {
         else
             return Obj.convertTo(cls);
     }
+
+    int cmp(Object other) {
+        if (o := Obj.cast(other, null))
+            return __inst.cmp(o.convertTo(Object));
+        return __inst.cmp(other);
+    }
 }
 
 Object convert(Object inst, Class cls) {

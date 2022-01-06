@@ -14,14 +14,16 @@
 
 ## Crash standard library.
 
-import crack.ascii lstrip, rstrip;
+import crack.ascii lstrip, radix, rstrip;
 import crack.cont.array Array;
 import crack.fs makePath;
-import crack.io cout, Formatter, FStr, Reader, Seekable, Writer;
-import crack.lang AppendBuffer, Exception;
+import crack.io cerr, cout, Formatter, FStr, Reader, Seekable, Writer;
+import crack.lang cmp, AppendBuffer, CString, Exception;
 import crack.regex Regex;
 import crack.strutil split;
-import .crash createRootContext, eval, Builtin, EvalContext, Obj, Value;
+import crack.sys env;
+import crack.time Date, Time, TimeDelta, BILLION;
+import .crash createRootContext, eval, Builtin, EvalContext, Obj, ObjOf, Value;
 import .types BoolObj, IntObj;
 
 @import .ann function;
@@ -160,6 +162,182 @@ class LookUpCmd : Builtin {
     return makePath(filename).exists();
 }
 
+class DateTime : Date {
+
+    ## Seconds since the epoch.
+    int64 __secs;
+
+    ## Nano-seconds since the start of the last second.
+    int __nsecs;
+
+    @final int64 oper .secondsSinceEpoch() { return __secs }
+    @final int oper .nsecs() { return __nsecs }
+
+    oper init(int64 secs, int nsecs) :
+        Date(secs),
+        __secs = secs,
+        __nsecs = nsecs {
+    }
+
+    ## Returns the UTC timestamp in ISO 8601 format.
+    String isoformat() {
+        d := this;
+        if (tm_gmtoff)
+            d = DateTime(__secs - tm_gmtoff, __nsecs);
+        return d.formatTime('%Y-%m-%dT%H:%M:%SZ');
+    }
+
+    String toString() {
+        int abs(int val) { return val > 0 ? val : -val }
+        String pad(uint val) {
+            return val < 10 ? '0' + radix(val, 10) : radix(val, 10);
+        }
+
+        off := abs(tm_gmtoff);
+        tzhr := pad(off / 3600);
+        tzmin := pad(off / 60 % 60);
+        tz := tm_gmtoff > 0 ? FStr() `+$tzhr:$tzmin` : FStr() `-$tzhr:$tzmin`;
+        return formatTime('%Y-%m-%dT%H:%M:%S' + tz);
+    }
+
+    void formatTo(Formatter out) { out.write(toString()) }
+
+    DateTime oper +(TimeDelta td) {
+        t := __secs + td.secs;
+        ns := __nsecs + td.nsecs;
+        if (ns >= BILLION) {
+            ns -= BILLION;
+            # It's possible for a denormalized TimeDelta to contain a
+            # value greater than 2 BILLION, but we should only be dealing with
+            # normalized values, here.
+            t += 1;
+        } else if (ns < 0) {
+            # Again, only need to worry about normalized values.
+            ns += BILLION;
+            t -= 1;
+        }
+
+        return DateTime(t, ns);
+    }
+
+    DateTime oper -(TimeDelta td) {
+        return this + TimeDelta(-td.secs, -td.nsecs);
+    }
+
+    ObjOf[DateTime] wrap() {
+        result := ObjOf[DateTime](this);
+
+        alias MyObj = ObjOf[DateTime];
+
+        @function(DateTime) String isoformat() { return self.isoformat() }
+        @function(DateTime) MyObj plus(TimeDelta delta) {
+            return (self + delta).wrap();
+        }
+        @function(DateTime) MyObj minus(TimeDelta delta) {
+            return (self - delta).wrap();
+        }
+        @function(DateTime) String toString() { return self.toString() }
+
+        ## Returns the unix time (seconds since the epoch).
+        @function(DateTime) int secondsSinceEpoch() {
+            return int(self.secondsSinceEpoch);
+        }
+
+        ## Returns nanoseconds since the last second.
+        @function(DateTime) int nsecs() { return self.nsecs }
+
+        result.define('isoformat', isoformat(this));
+        result.define('+', plus(this));
+        result.define('-', minus(this));
+        result.define('toString', toString(this));
+        result.define('secondsSinceEpoch', secondsSinceEpoch(this));
+        result.define('nsecs', nsecs(this));
+        return result;
+    }
+
+    int cmp(DateTime other) {
+        return cmp(__secs, other.__secs);
+    }
+
+    int cmp(Object other) {
+        if (dt := DateTime.cast(other, null))
+            return cmp(dt);
+        else
+            return Object.cmp(other);
+    }
+}
+
+alias DateTimeObj = ObjOf[DateTime];
+
+const Regex
+    LOCAL_RX = Regex(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$'),
+    TZ_RX = Regex(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(.+)$');
+
+## returns a new DateTime object.
+##
+## This accepts a single argument which can either be an iso 8660 style
+## timestamp or the value "now", indicating that the time should be the
+## current time.
+##
+## A timestamp must be in ISO 8601 format and have one of:
+## - the "Z" suffix, indicating that it is UTC.
+## - Another suffix, which must be a valid timezone known to the system (e.g.
+##   GMT, EST, PST, US/Eastern...  The results of specifying an invalid
+##   timezone are undefined).
+## - No suffix, indicating local time.
+##
+## Examples:
+##   DateTime now                    # Current time.
+##   DateTime 2021-12-23T18:11:34Z   # UTC timestamp.
+##   DateTime 2021-12-23T18:11:34EST # US Eastern timestamp.
+@function DateTimeObj dateTime(String spec) {
+    if (spec == 'now') {
+        time := Time.now();
+        return DateTime(time.secs, time.nsecs).wrap();
+    } else if (LOCAL_RX.match(spec)) {
+        return DateTime(Date.parseTime(CString(spec), '%Y-%m-%dT%H:%M:%S')
+                            .getSeconds(),
+                        0
+                        ).wrap();
+    } else if (m := TZ_RX.match(spec)) {
+        oldTZ := env['TZ'];
+        env['TZ'] = m.group(1);
+        DateTime result;
+        try {
+            result = DateTime(
+                Date.parseTime(CString(spec), '%Y-%m-%dT%H:%M:%S')
+                    .getSeconds(),
+                0
+            );
+        } catch (Exception ex) {
+            env['TZ'] = oldTZ;
+            DateTime.parseTime(CString(spec), '%Y-%m-%dT%H:%M:%S');
+            throw ex;
+        }
+        env['TZ'] = oldTZ;
+
+        # We call getSeconds() on a fresh DateTime object in order to restore
+        # the global timezone variable after messing with the timezone.
+        DateTime(0, 0).getSeconds();
+        return result.wrap();
+    } else {
+        throw Exception('Unrecognized timestamp format');
+    }
+}
+
+@function TimeDelta hours(int amount) {
+    return TimeDelta(int32(3600 * amount), 0);
+}
+@function TimeDelta minutes(int amount) {
+    return TimeDelta(int32(60 * amount), 0);
+}
+@function TimeDelta seconds(int amount) { return TimeDelta(int32(amount), 0) }
+@function TimeDelta millis(int amount) {
+    secs := amount / 1000;
+    nsecs := int32((amount % 1000) * 1000000);
+    return TimeDelta(int32(secs), nsecs);
+}
+
 ## Returns a module object for the standard library.
 ##
 ## Functions defined are:
@@ -175,5 +353,10 @@ class LookUpCmd : Builtin {
     obj.define('help', HelpCmd());
     obj.define('lookUp', LookUpCmd());
     obj.define('exists', exists());
+    obj.define('DateTime', dateTime());
+    obj.define('hours', hours());
+    obj.define('minutes', minutes());
+    obj.define('seconds', seconds());
+    obj.define('millis', millis());
     return obj;
 }

@@ -14,9 +14,10 @@
 
 import crack.io cout, cerr;
 import crack.lang Exception;
+import crack.sys env;
 import crash createRootContext, eval, parseString;
 import stdlib stdlib;
-import types BoolObj;
+import types BoolObj, IntObj;
 
 @import crack.ann assert;
 
@@ -36,7 +37,6 @@ result := ev(I"
     format $data [src readAll]
     ");
 @assert(result == 'test string\ntest string\n');
-cerr `ok\n`;
 
 result = ev(I"
     import [stdlib] open exists
@@ -67,3 +67,97 @@ result = ev(I"
     def f {} 'function documentation' { print foo }
     doc [lookUp f]
     ") == 'function documentation');
+
+
+# DateTime.
+
+# Local timezone.
+env['TZ'] = 'US/Eastern';
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [DateTime 2021-12-23T14:48:35] toString
+    ") == '2021-12-23T14:48:35-05:00');
+
+# ISO format.
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [DateTime 2021-12-23T14:48:35] isoformat
+    ") == '2021-12-23T19:48:35Z');
+
+# Timezone parsing.
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [DateTime 2021-12-23T14:48:35US/Pacific] toString
+    ") == '2021-12-23T14:48:35-08:00');
+@assert(env['TZ'] == 'US/Eastern');
+
+# Timezones don't corrupt default (local).
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [DateTime 2021-12-23T14:48:35US/Pacific]
+    [DateTime 2021-12-23T14:48:35] toString
+    ") == '2021-12-23T14:48:35-05:00');
+@assert(env['TZ'] == 'US/Eastern');
+
+# Now.
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    var now [DateTime now]
+    var isonow [DateTime [now isoformat]] '\n'
+    == $now $isonow
+    "));
+
+# Deltas.
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] - [hours 1]] isoformat
+    ") == '2021-12-23T13:48:35Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] + [hours 1]] isoformat
+    ") == '2021-12-23T15:48:35Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] - [minutes 1]] isoformat
+    ") == '2021-12-23T14:47:35Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] + [minutes 1]] isoformat
+    ") == '2021-12-23T14:49:35Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] - [seconds 1]] isoformat
+    ") == '2021-12-23T14:48:34Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] + [seconds 1]] isoformat
+    ") == '2021-12-23T14:48:36Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] - [millis 1000]] isoformat
+    ") == '2021-12-23T14:48:34Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] + [millis 1000]] isoformat
+    ") == '2021-12-23T14:48:36Z');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    [[DateTime 2021-12-23T14:48:35Z] + [millis 1]] nsecs
+    ") == IntObj(1000000));
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    var dt [[DateTime 2021-12-23T14:48:35Z] - [millis 1]]
+    format [dt isoformat] ' ' [dt nsecs]
+    ") == '2021-12-23T14:48:34Z 999000000');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    var dt [[DateTime 2021-12-23T14:48:35Z] + [millis 1001]]
+    format [dt isoformat] ' ' [dt nsecs]
+    ") == '2021-12-23T14:48:36Z 1000000');
+@assert(ev(I"
+    import [stdlib] DateTime hours minutes seconds millis
+    var dt [[DateTime 2021-12-23T14:48:35Z] + [millis -1001]]
+    format [dt isoformat] ' ' [dt nsecs]
+    ") == '2021-12-23T14:48:33Z 999000000');
+
+cerr `ok\n`;
