@@ -16,7 +16,8 @@ import crack.ascii isDigit, isSpace, strip, wsplit;
 import crack.fs makePath;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-import crack.functor Functor2;
+import crack.fieldset FieldSet, HashMapFieldSet;
+import crack.functor Functor0, Functor2;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
 import crack.lang AppendBuffer, Exception, SubString;
 import crack.process Process;
@@ -24,11 +25,12 @@ import crack.strutil StringArray;
 
 import .types BoolObj, IntObj, Number;
 
-@import crack.ann define;
+@import crack.ann cvars, define, impl, interface;
+@import crack.fieldset_ann fieldset_accessors;
 
 class EvalContext;
 
-@export_symbols ValueConverter;
+@export_symbols ValueConverter, API, PPI;
 
 ## A source code location.
 class SrcLoc {
@@ -52,6 +54,122 @@ class CrashError : Exception {
     }
 }
 
+## Type specifier for ParmInfo.
+class TypeSpec {
+
+    ## The name of the type in a form suitable for use in documentation.
+    ##
+    ## This should be a "fully qualified" type name.
+    String oper .desc() { return '<Undefined>' }
+}
+
+## Type specifier that can be used for primitive types.
+class PrimTypeSpec : TypeSpec {
+    @cvars {
+        ## The primitive class used for the type.
+        Class cls;
+    }
+
+    String oper .desc() { return String(cls.name) }
+}
+
+const ANY_TYPE := TypeSpec();
+
+class ParmInfo;
+
+## Interface for classes that can be added to a Formatter field set to provide
+## special formatting for ParmInfo objects.
+##
+## Implement this interface and then attach it to a formatter to override the
+## default formatting in a context.
+@interface ParmInfoFormatter {
+    @fieldset_accessors(ParmInfoFormatter);
+
+    @abstract void format(Formatter out, ParmInfo parmInfo);
+}
+
+## Interface for defining parameter initializers.
+class Initializer {}
+
+## Parameter information.
+##
+## Used for documentation generation and generation of definitions for
+## compile-time checking.
+class ParmInfo {
+    @cvars {
+        ## Parameter name.
+        String name;
+
+        ## Parameter type definition.
+        TypeSpec type;
+
+        ## True if the parameter matches multiple positional arguments.
+        bool mult;
+
+        ## If specified, this is an initializer for creating the default value of
+        ## the parameter when the parameter is not specified.
+        Initializer defaultInitializer;
+    }
+
+    ## Create the default ParmInfo object, which is just a single, multi
+    ## argument of any type.
+    @static ParmInfo createDefault() {
+        return ParmInfo('arg', ANY_TYPE, true, null);
+    }
+
+    ## Create a ParmInfo for a primitive type parameter with no initializer.
+    @static ParmInfo create(String name, Class cls) {
+        return ParmInfo(name, PrimTypeSpec(cls), false, null);
+    }
+
+    @static ParmInfo create(String name, Class cls, Initializer init) {
+        return ParmInfo(name, PrimTypeSpec(cls), false, init);
+    }
+
+    ## Create a ParmInfo for a primitive type parameter with no initializer
+    ## and optional "multiple" semantics.
+    @static ParmInfo create(String name, Class cls, bool mult) {
+        return ParmInfo(name, PrimTypeSpec(cls), mult, null);
+    }
+
+    ## Create a non-multiple ParmInfo with the given typespec.
+    @static ParmInfo create(String name, TypeSpec spec) {
+        return ParmInfo(name, spec, false, null);
+    }
+
+    void formatTo(Formatter out) {
+        if (formatter := ParmInfoFormatter.get(out)) {
+            formatter.format(out, this);
+            return;
+        }
+
+        if (type is ANY_TYPE)
+            out `$name`;
+        else
+            out `$name:$(type.desc)`;
+        if (defaultInitializer)
+            out `=$defaultInitializer`;
+        if (mult)
+            out `...`;
+    }
+}
+
+## Paramter initialize from a constant.
+class ConstInitializer : Initializer {
+    @cvars {
+        Object val;
+    }
+
+    void formatTo(Formatter out) { out `$val` }
+}
+
+const NULL_DEFAULT := ConstInitializer(null);
+
+alias PPI = ParmInfo.create;
+alias API = Array[ParmInfo];
+
+const _DEFAULT_PARM_LIST := Array[ParmInfo]![ParmInfo.createDefault()];
+
 ## A value stored in an EvalContext.  We don't store data values directly,
 ## they always are evaluated.  In this way, we can do things like override
 ## evaluation.
@@ -73,6 +191,12 @@ class CrashError : Exception {
 
     ## Returns the doc-string for the value.
     String getDoc() { return '' }
+
+    ## Returns the list of ParmInfo objects defining the paramter list.
+    ##
+    ## By default, this is just an array containing a single default ParmInfo
+    ## object, indicating that the value accepts any list of arguments.
+    Array[ParmInfo] getParmInfo() { return _DEFAULT_PARM_LIST }
 }
 
 ## A variable dictionary.
@@ -135,6 +259,14 @@ class LexCtx {
 
         if (cur !is null)
             cerr `stack continues!`;
+    }
+
+    ## Iterate over the set of definitions in the lexical context.
+    ##
+    ## Note that this does not iterate over definitions in the parent lexical
+    ## context.
+    VarDict.Iter iter() {
+        return __vars.iter();
     }
 }
 
@@ -291,8 +423,7 @@ class SimpleValue : Value {
 class PrintCmd : Builtin {
     String getDoc() {
         return I'\
-            Prints all of the arguments to standard output:
-            print <arg>...
+            Prints all of the arguments to standard output.
             ';
     }
 
@@ -306,8 +437,7 @@ class PrintCmd : Builtin {
 class FormatCmd : Builtin {
     String getDoc() {
         return I'\
-            Returns a string containing all of the arguments formatted:
-            format <arg>...
+            Returns a string containing all of the arguments formatted.
 
             This is the equivalent of the "print" command only instead of
             writing to standard output, it formats a string.
@@ -328,8 +458,7 @@ class FormatCmd : Builtin {
 class ProcCmd : Builtin {
     String getDoc() {
         return I'\
-            Run a subprocess, returns the result code:
-            proc <command> [arg...]
+            Run a subprocess, returns the result code.
             ';
     }
 
@@ -339,14 +468,18 @@ class ProcCmd : Builtin {
             argv.append(FStr() `$arg`);
         return IntObj(Process(argv, 0).run() & 0xff);
     }
+
+    Array[ParmInfo] getParmInfo() {
+        return Array[ParmInfo]![PPI('command', String),
+                                PPI('arg', String, true)];
+    }
 }
 
 ## "give" just returns the value of its first argument.
 class GiveCmd : Builtin {
     String getDoc() {
         return I'\
-            Returns the value of the first argument:
-            give <value>
+            Returns the value of the first argument.
 
             "give" is useful in cases where you want to return the value of a
             variable or constant from a block.  For example:
@@ -363,13 +496,16 @@ class GiveCmd : Builtin {
             throw Exception('"give" must have exactly one argument.');
         return args[0];
     }
+
+    Array[ParmInfo] getParmInfo() {
+        return Array[ParmInfo]![PPI('arg', ANY_TYPE)];
+    }
 }
 
 class VarCmd : Builtin {
     String getDoc() {
         return I'\
-            Define a variable:
-            var <var-name> <initial-value> [documentation]
+            Define a variable.
 
             Defines a variable in the current context.  The variable will be
             visible in the current context and all nested contexts, and will
@@ -392,13 +528,20 @@ class VarCmd : Builtin {
                        );
         return val;
     }
+
+    API getParmInfo() {
+        return API![PPI('varName', String),
+                    PPI('value', ANY_TYPE),
+                    PPI('documentation', String, NULL_DEFAULT)
+                    ];
+    }
+
 }
 
 class SetCmd : Builtin {
     String getDoc() {
         return I'\
             Set an existing variable to the given value.
-            set <var-name> <value>
 
             Note that the variable must have already been defined using the
             "var" command.
@@ -417,6 +560,10 @@ class SetCmd : Builtin {
         context.set(var, val);
         return val;
     }
+
+    API getParmInfo() {
+        return API![PPI('varName', String), PPI('value', ANY_TYPE)];
+    }
 }
 
 # Numeric operations.
@@ -431,6 +578,10 @@ class SetCmd : Builtin {
             for (arg :in args.subarray(1))
                 accum = accum.meth(Number.convertNum(arg));
             return accum;
+        }
+
+        API getParmInfo() {
+            return API![PPI('primary', Number), PPI('arg', Number)];
         }
     }
 }
@@ -448,8 +599,7 @@ class SetCmd : Builtin {
 class EqualCmd : Builtin {
     String getDoc() {
         return I'\
-            Returns true if its two arguments are equal, false if not:
-            == <value> <value>
+            Returns true if its two arguments are equal, false if not.
             ';
     }
 
@@ -459,13 +609,16 @@ class EqualCmd : Builtin {
 
         return BoolObj(args[0] == args[1]);
     }
+
+    API getParmInfo() {
+        return API![PPI('val1', ANY_TYPE), PPI('val2', ANY_TYPE)];
+    }
 }
 
 class NotEqualCmd : Builtin {
     String getDoc() {
         return I'\
-            Returns true if its two arguments are not equal, false if not:
-            != <value> <value>
+            Returns true if its two arguments are not equal, false if not.
             ';
     }
 
@@ -474,6 +627,10 @@ class NotEqualCmd : Builtin {
             throw Exception('usage: != <val1> <val2>');
 
         return BoolObj(args[0] != args[1]);
+    }
+
+    API getParmInfo() {
+        return API![PPI('val1', ANY_TYPE), PPI('val2', ANY_TYPE)];
     }
 }
 
@@ -922,8 +1079,7 @@ class FuncDef : Value {
 class ObjectCmd : Builtin {
     String getDoc() {
         return I'\
-            Create an object:
-            object <block>
+            Create an object.
 
             The block is executed in the context of the object.  All variables
             created and functions defined become instance variables and
@@ -950,14 +1106,17 @@ class ObjectCmd : Builtin {
 
         return Obj(vars);
     }
+
+    API getParmInfo() {
+        return API![PPI('block', Block)];
+    }
 }
 
 ## Command to import a set of names from an object.
 class ImportCmd : Builtin {
     String getDoc() {
         return I'\
-            Imports names from an object into the current context:
-            import <object> <name>...
+            Imports names from an object into the current context.
             ';
     }
 
@@ -971,6 +1130,10 @@ class ImportCmd : Builtin {
             context.define(nm, obj.vars[nm]);
         }
         return obj;
+    }
+
+    API getParmInfo() {
+        return API![PPI('object', ANY_TYPE), PPI('name', String)];
     }
 }
 
@@ -988,8 +1151,7 @@ class ImportCmd : Builtin {
 class EvalfileCmd : Builtin {
     String getDoc() {
         return I'\
-            Evaluates the file and returns the module as an object:
-            evalfile <filename>
+            Evaluates the file and returns the module as an object.
 
             You generally want to use "load_module" instead (which has similar
             semantics, but returns the existing module object if it has
@@ -1014,6 +1176,10 @@ class EvalfileCmd : Builtin {
             return null;
         }
     }
+
+    API getParmInfo() {
+        return API![PPI('filename', String)];
+    }
 }
 
 _moduleMap := HashMap[String, Obj]();
@@ -1026,8 +1192,7 @@ class LoadModuleCmd : Builtin {
     String getDoc() {
         return I'\
             Returns the named module as an object, loading the file (ala
-            "evalfile") if it is not already loaded:
-            load_module <filename>
+            "evalfile") if it is not already loaded.
 
             You may import symbols defined in the file from the result, for
             example:
@@ -1063,6 +1228,10 @@ class LoadModuleCmd : Builtin {
             return null;
         }
     }
+
+    API getParmInfo() {
+        return API![PPI('filename', String)];
+    }
 }
 
 ## Evaluate a file in the current context.  Returns zero.
@@ -1093,8 +1262,16 @@ class SourceCmd : Builtin {
             return null;
         }
     }
+
+    API getParmInfo() {
+        return API![PPI('filename', String)];
+    }
 }
 
+## The "if" command.
+##
+## Note that we don't provide ParmInfo for this because its argument parsing
+## is too complicated to be represented that way.
 class IfCmd : Builtin {
 
     String getDoc() {
