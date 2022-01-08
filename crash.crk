@@ -19,7 +19,7 @@ import crack.cont.hashmap HashMap;
 import crack.fieldset FieldSet, HashMapFieldSet;
 import crack.functor Functor0, Functor2;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
-import crack.lang AppendBuffer, Exception, SubString;
+import crack.lang cmp, AppendBuffer, Exception, SubString;
 import crack.process Process;
 import crack.strutil StringArray;
 
@@ -700,8 +700,8 @@ class ObjOf[T] : Obj {
 
     int cmp(Object other) {
         if (o := Obj.cast(other, null))
-            return __inst.cmp(o.convertTo(Object));
-        return __inst.cmp(other);
+            return cmp(__inst, o.convertTo(Object));
+        return cmp(__inst, other);
     }
 }
 
