@@ -27,7 +27,8 @@
 
 
 import crack.ann readBlock, readDelimited, NodeList;
-import crack.compiler CrackContext, Token, TOK_LPAREN, TOK_RPAREN;
+import crack.compiler CrackContext, Token, TOK_LPAREN, TOK_POPERRCTX,
+    TOK_RPAREN;
 import crack.cont.array Array;
 import crack.io cerr, FStr, StringFormatter;
 import crack.lang Exception;
@@ -92,6 +93,7 @@ void function(CrackContext ctx) {
     String className;
 
     docs := ctx.consumeDocs();
+    loc := ctx.getLocation();
 
     # See if we've got a receiver type.
     NodeList receiverType;
@@ -198,11 +200,22 @@ void function(CrackContext ctx) {
             
                 return $(convertResult(retType))(result);
             }
+
+            Array[ParmInfo] getParmInfo() {
+                return Array[ParmInfo]![
+        `;
+
+    for (arg :in args)
+        out `ParmInfo.create("$(arg.name)", $(arg.type)), `;
+    out I`\
+                ];
+            }
         }
         `;
-    
+
     block3 := out.cString();
 
+    ctx.putBack(Token(TOK_POPERRCTX, '[pop error context]'.buffer, loc));
     ctx.inject(@FILE.buffer, @LINE, block3.buffer);
     body.expand(ctx, null);
     ctx.inject(@FILE.buffer, @LINE, block2.buffer);
@@ -216,4 +229,8 @@ void function(CrackContext ctx) {
         receiverType.expand(ctx, null);
     }
     ctx.inject(@FILE.buffer, @LINE, block1.buffer);
+    ctx.pushErrorContext(
+        FStr() I`Expanded from @function at \
+                 $(loc.getName()):$(loc.getLineNumber())\0`.buffer
+    );
 }        

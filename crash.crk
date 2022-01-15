@@ -71,6 +71,15 @@ class PrimTypeSpec : TypeSpec {
     }
 
     String oper .desc() { return String(cls.name) }
+
+    int cmp(Object other) {
+        if (this is other)
+            return 0;
+        if (o := PrimTypeSpec.cast(other))
+            return uintz(cls) - uintz(o.cls);
+        else
+            return Object.cmp(other);
+    }
 }
 
 const ANY_TYPE := TypeSpec();
@@ -151,6 +160,19 @@ class ParmInfo {
             out `=$defaultInitializer`;
         if (mult)
             out `...`;
+    }
+
+    int cmp(Object other) {
+        if (this is other)
+            return 0;
+        if (o := ParmInfo.cast(other, null)) {
+            rc := cmp(name, o.name); if (rc) return rc;
+            rc = cmp(type, o.type); if (rc) return rc;
+            rc = cmp(mult, o.mult); if (rc) return rc;
+            return cmp(defaultInitializer, o.defaultInitializer);
+        } else {
+            return Object.cmp(other);
+        }
     }
 }
 

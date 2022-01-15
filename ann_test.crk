@@ -16,7 +16,7 @@ import crack.cont.array Array;
 import crack.io cout, cerr, Formatter, FStr;
 import crack.lang cmp, Exception;
 import crash createRootContext, eval, Builtin, CrashError, EvalContext, Obj,
-    ObjOf, Value;
+    ObjOf, ParmInfo, Value;
 import types IntObj, BoolObj, FloatObj;
 import repl repl;
 
@@ -54,6 +54,15 @@ root.define('getInt', getInt());
 root.define('getFloat', getFloat());
 @function bool getBool(bool val) { return val }
 root.define('getBool', getBool());
+
+# Check built-in ParmInfo
+@assert(strlen().getParmInfo() ==
+         Array[ParmInfo]![ParmInfo.create('name', String)]
+        );
+@assert(addPointFive().getParmInfo() ==
+         Array[ParmInfo]![ParmInfo.create('val', float)]
+        );
+@assert(meth(100).getParmInfo() == Array[ParmInfo]![]);
 
 # Define a method.
 o := Obj();
