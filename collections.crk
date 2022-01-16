@@ -19,7 +19,7 @@ import crack.cont.treemap TreeMap;
 import crack.io FStr;
 import crack.lang Exception;
 import .crash parseBlockArg, parseString, Block, Builtin, EvalContext, Obj,
-    ObjOf, SimpleValue;
+    ObjOf, ParmInfo, SimpleValue;
 import .types BoolObj, IntObj;
 
 @import crack.ann cvars, impl, interface;
