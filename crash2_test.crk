@@ -20,7 +20,8 @@ import .parser parseString;
 @import crack.ann assert;
 
 Object eval(String script) {
-    return convert(parseString(script)).evaluate(createRootContext());
+    rootCtx := createRootContext();
+    return convert(rootCtx, parseString(script)).evaluate(rootCtx);
 }
 
 @assert(eval("if 1 { 'ok' }") == 'ok');

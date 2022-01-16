@@ -21,7 +21,7 @@ import crack.lang Exception;
 import .ast Expr, FieldRef, FuncDef, List, FloatLiteral, FuncCall, IfStmt,
     IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral, VarDef, VarRef;
 import .crash createRootContext, eval, ActiveFunc, Block, Command, CrashError,
-    EvalContext, InterpExpr, LiteralStringTerm, SimpleValue,
+    EvalContext, InterpExpr, LexCtx, LiteralStringTerm, SimpleValue,
     V1SrcLoc = SrcLoc, Term, V1VarRef = VarRef,
     V1StringLiteral = StringLiteral, Value;
 import .parser parseString;
@@ -390,12 +390,34 @@ class CompileContext @impl Converter {
     }
 }
 
-ExprWrapper convert(Node node) {
-    return CompileContext().convert(node);
+void _populateCompileContext(CompileContext compileCtx, LexCtx lexCtx) {
+    if (lexCtx is null)
+        return;
+
+    # Import from the parent.
+    _populateCompileContext(compileCtx, lexCtx.parent);
+
+    # Add everything from the current context to the dictionary.
+    for (entry :in lexCtx)
+        compileCtx.topFrame[entry.key] = Def(entry.key);
+}
+
+## Populate symbols in the compile context from those in an eval context.
+##
+## This is needed to convert symbols from an eval context when we switch
+## syntaxes.
+void populateCompileContext(CompileContext compileCtx, EvalContext evalCtx) {
+    _populateCompileContext(compileCtx, evalCtx.frame.vars);
+}
+
+ExprWrapper convert(EvalContext evalCtx, Node node) {
+    cctx := CompileContext();
+    populateCompileContext(cctx, evalCtx);
+    return cctx.convert(node);
 }
 
 bool zulrefSyntaxWriter(EvalContext ctx, String inputData) {
-    cout `$(convert(parseString(inputData)).evaluate(ctx))\n`;
+    cout `$(convert(ctx, parseString(inputData)).evaluate(ctx))\n`;
     return true;
 }
 
@@ -411,7 +433,7 @@ if (@SCOPE_NAME == '.main') {
     repl := REPL(rootCtx);
     repl.sendToInterp = zulrefSyntax;
     if (argv.count() > 1) {
-        convert(parseString(makePath(argv[1]).readAll()))
+        convert(rootCtx, parseString(makePath(argv[1]).readAll()))
             .evaluate(repl.rootCtx);
     } else {
         repl.run();
