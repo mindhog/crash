@@ -6,7 +6,7 @@ import crack.cont.hashmap HashMap;
 import crack.io FStr;
 import crack.lang Exception;
 import .repl classicSyntax, InterpWriter, REPL;
-import .crash Builtin, EvalContext;
+import .crash Builtin, EvalContext, ParmInfo;
 import .crash2 zulrefSyntax;
 import .types IntObj;
 
