@@ -15,6 +15,7 @@
 ## General language model features.
 
 import crack.cont.array Array;
+import crack.cont.hashmap HashMap;
 import crack.cont.treemap TreeMap;
 import crack.lang FieldSet;
 import crack.io cerr, Formatter, FStr;
@@ -27,10 +28,14 @@ import .ast DynamicList, Expr, FieldRef, FloatLiteral, ForStmt, FuncCall,
 @import crack.ann assert, cvars, impl;
 @import crack.fieldset_ann fieldset_accessors;
 
-class Def {
+class Type;
+
+@abstract class Def {
     @cvars {
         String name;
     }
+
+    @abstract Type getType();
 }
 
 class Type : Def {
@@ -46,15 +51,68 @@ class Type : Def {
     String getDisplayName() {
         return name;
     }
-}
 
-class GenericType : Def {
-    oper init(String name) : Def(name) {}
+    ## Returns true if the type is a FuncType.
+    bool isFuncType() { return false }
+
+    ## TODO: implement to return a meta-type.
+    Type getType() { return null }
 }
 
 ## A composite type is an instantiated GenericType.
 class CompositeType : Type {
-    oper init(String name) : Type(name) {}
+    Array[Type] typeParms;
+    oper init(String name, Array[Type] typeParms) :
+        Type(name), typeParms = typeParms {
+    }
+}
+
+class FuncType : CompositeType {
+    String name;
+
+    ## Construct a FuncType from its type vector, consisting of the return
+    ## type followed by the arg types.
+    oper init(String name, Array[Type] types) :
+        CompositeType(name, types) {
+    }
+}
+
+class GenericType : Def {
+    HashMap[Array[Type], CompositeType] __concreteTypes =
+        HashMap[Array[Type], CompositeType]();
+
+    oper init(String name) : Def(name) {}
+
+    ## Returns true if the generic is a function generic.
+    bool isFuncType() {
+        return false;
+    }
+
+    ## Obtain a CompositeType from the generic with the given parameters.
+    ##
+    ## This may consume typeParms, so typeParms should not be modified after
+    ## calling this.
+    CompositeType get(Array[Type] typeParms) {
+        concreteType := __concreteTypes.get(typeParms);
+        if (!concreteType)
+            __concreteTypes[typeParms] = concreteType =
+                isFuncType() ? FuncType(name, typeParms) :
+                               CompositeType(name, typeParms);
+        return concreteType;
+    }
+
+    ## TODO: return a generic meta-type.
+    Type getType() { return null }
+}
+
+## Type for generic functions (which are either plain functions or generics
+## implementing "oper call" for some array of types).
+class GenericFuncType : GenericType {
+    oper init(String name) : GenericType(name) {}
+
+    bool isFuncType() {
+        return true;
+    }
 }
 
 class Var : Def {
@@ -70,6 +128,8 @@ class Var : Def {
     Expr initializer;
 
     oper init(String name, Type type) : Def(name), type = type {}
+
+    Type getType() { return type }
 }
 
 ## Tracks information about the current return type.  This may be modified by
@@ -108,6 +168,14 @@ class Func : Def {
         returnType = returnType,
         args = args {
     }
+
+    Type getType() {
+        # TODO: should be extracting this from the GenericFuncType.
+        types := Array[Type]![returnType];
+        for (arg :in args)
+            types.append(arg.getType());
+        return FuncType(name, types);
+    }
 }
 
 class Error : Exception {
@@ -115,9 +183,8 @@ class Error : Exception {
 }
 
 class CompileContext {
-    Type stringLiteralType, integerLiteralType, floatLiteralType,
-         # TODO: functionType needs to be a generic.
-         functionType;
+    Type stringLiteralType, integerLiteralType, floatLiteralType;
+    GenericFuncType functionType;
     DefMap defs;
     Array[DefMap] stack = {};
 
@@ -130,7 +197,7 @@ class CompileContext {
         ctx.defs['Int'] = ctx.integerLiteralType = Type('Int');
         ctx.defs['UInt'] = Type('UInt');
         ctx.defs['Float'] = ctx.floatLiteralType = Type('Float');
-        ctx.defs['Function'] = ctx.functionType = Type('Function');
+        ctx.defs['Function'] = ctx.functionType = GenericFuncType('Function');
         ctx.stack.append(ctx.defs);
         return ctx;
     }
@@ -212,6 +279,13 @@ class CompileContext {
     }
 }
 
+Array[Type] typesFromArgs(Array[Var] vars) {
+    result := Array[Type]();
+    for (var :in vars)
+        result.append(var.type);
+    return result;
+}
+
 ## T must extend VisitorReturnTypes.
 class TypeCheckVisitor : VisitorImpl {
 
@@ -220,6 +294,17 @@ class TypeCheckVisitor : VisitorImpl {
     @cvars {
         CompileContext context;
     }
+
+    void onVarRef(VarRef varRef) {
+        var := context.lookUp(varRef.var.text);
+        var.getType().putIn(varRef);
+    }
+
+    #void onFuncCall(FuncCall funcCall) {
+    #    VisitorImpl.onFuncCall();
+    #    func := Func.get(funcCall);
+    #    for (arg :in func.args)
+    #}
 
     void onNominalType(NominalType type) {
         VisitorImpl.onNominalType(type);
@@ -294,7 +379,8 @@ class TypeCheckVisitor : VisitorImpl {
         if (funcDef.name)
             context.define(func);
         context.pop();
-        context.functionType.putIn(funcDef);
+        type := context.functionType.get(typesFromArgs(args));
+        type.putIn(funcDef);
     }
 }
 
