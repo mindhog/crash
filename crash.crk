@@ -398,6 +398,16 @@ class EvalContext {
     @final ValueConverter getConverter(Class cls) {
         return __classMap.get(uintz(cls));
     }
+
+    ## Unwind the call-stack until the current frame is 'targetFrame'.
+    ## Throws an exception if the target frame is not on the call stack, at
+    ## which point the call stack will have also been completely destroyed.
+    void unwindTo(Frame targetFrame) {
+        while (frame && frame !is targetFrame)
+            frame = frame.parent;
+        if (frame is null)
+            throw Exception('Target frame not on call stack.');
+    }
 }
 
 Value createValueWrapper(EvalContext context, Object obj);
@@ -1380,6 +1390,99 @@ class IfCmd : Builtin {
     }
 }
 
+class WhileCmd : Builtin {
+    String getDoc() {
+        return I'The "while" statement: while <cond-block> <action-block>
+
+            Repeat the action while the condition is true.  Returns the last
+            value returned by the action block.
+
+            The while loop has its own lexical context: both the condition and
+            the action are performed in this context.  In this way,
+            definitionas in the condition are visible within the action block.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: while <cond-block> <action-block>');
+
+        cond := parseBlockArg(args, 0);
+        action := parseBlockArg(args, 1);
+
+        Object result;
+        while (true) {
+            context.pushFuncFrame();
+            myFrame := context.frame;
+
+            # Define a special flag variable that the "break" command can set
+            # to cause the loop to terminate.
+            breakTriggered := BoolObj(false);
+            context.define('__break_triggered', SimpleValue(breakTriggered));
+
+            @define break_check() {
+                if (breakTriggered) {
+                    context.unwindTo(myFrame);
+                    context.yield = false;
+                    context.popFuncFrame();
+                    break;
+                }
+            }
+
+            condValue := cond.evaluate(context);
+            if (condValue is null && context.yield) {
+                @break_check();
+                return null;
+            }
+
+            # Terminate on a false condition value.
+            if (!condValue) {
+                context.popFuncFrame();
+                break;
+            }
+
+            # Evaluate the action.
+            result = action.evaluate(context);
+            if (result is null && context.yield) {
+                @break_check();
+                return null;
+            }
+
+            context.popFuncFrame();
+        }
+
+        return result;
+    }
+}
+
+class BreakCmd : Builtin {
+
+    String getDoc() {
+        return I'The "break" statement: break
+
+            Immediately terminates all enclosing blocks up to the first
+            enclosing "while" loop, and then causes the while loop to
+            terminate.
+
+            This works by triggering a yield, meaning that break will
+            work even through conforming builtins.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args)
+            throw Exception('usage: break');
+
+        breakTriggered := context.lookUp('__break_triggered');
+        if (breakTriggered is null)
+            throw Exception('break called outside of "while" loop');
+        bt := BoolObj.cast(breakTriggered.evaluate(context));
+        bt.val = true;
+        context.yield = true;
+        return null;
+    }
+}
+
 const int
     TOK_EOF = 0,
     TOK_STR = 1,
@@ -1757,6 +1860,8 @@ EvalContext createRootContext() {
     ctx.define('source', SourceCmd());
     ctx.define('proc', ProcCmd());
     ctx.define('if', IfCmd());
+    ctx.define('while', WhileCmd());
+    ctx.define('break', BreakCmd());
     ctx.define('+', AddCmd());
     ctx.define('-', SubCmd());
     ctx.define('*', MulCmd());

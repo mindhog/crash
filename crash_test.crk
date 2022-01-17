@@ -215,5 +215,55 @@ try {
     o foo
     ") == 'val');
 
+# Check basic while loop functionality.
+@assert(eval(I"\
+    var i [+ 0]
+    while {!= $i [+ 10]} {
+        set i [+ $i 1]
+    }
+    give $i
+    ") == IntObj(10)
+);
+
+# Test the break command.
+@assert(eval(I"\
+    var result bad
+    while {give true} {
+        set result good
+        break
+        set result bad
+    }
+    give $result
+    ") == 'good'
+);
+
+# "break" outside of a while loop should throw an exception.
+try {
+    eval('break');
+    @assert(false);
+} catch (Exception ex) {
+    @assert(ex.text.lfind('break called outside of "while" loop') != -1);
+}
+
+# Test while with the action never invoked.
+@assert(eval(I"\
+    var result good
+    while {give ''} {
+        set result bad
+    }
+    give $result
+    ") == 'good'
+);
+
+# Test that while returns the last successful action.
+@assert(eval(I"\
+    var flag true
+    while {give $flag} {
+        set flag ''
+        give good
+    }
+    ") == 'good'
+);
+
 cout `ok\n`;
 
