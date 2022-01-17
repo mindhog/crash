@@ -21,11 +21,12 @@
 
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-import crack.fieldset HashMapFieldSet;
+import crack.fieldset FieldSet, HashMapFieldSet;
 import crack.io cerr, Formatter, FStr;
-import crack.lang cmp, AssertionError;
+import crack.lang cmp, AssertionError, Exception;
 
 @import crack.ann impl, interface;
+@import crack.fieldset_ann fieldset_accessors;
 
 class SrcLoc;
 SrcLoc _get(String filename, int row, int col);
@@ -208,14 +209,29 @@ class FloatLiteral : Expr {
     }
 }
 
+class NotToplevel {
+    @fieldset_accessors(NotToplevel);
+}
+
 ## A list that is to be evaluated during the course of execution.
 class DynamicList : List {
     oper init(SrcLoc loc, Array[Expr] contents) : List(loc, contents) {}
 
     void formatTo(Formatter out) {
-        out `(`;
-        List.formatTo(out);
-        out `)`;
+        if (NotToplevel.get(out)) {
+            out `(`;
+            List.formatTo(out);
+            out `)`;
+        } else {
+            NotToplevel().putIn(out);
+            try {
+                List.formatTo(out);
+            } catch (Exception ex) {
+                NotToplevel.deleteField(out);
+                throw ex;
+            }
+            NotToplevel.deleteField(out);
+        }
     }
     void foo() {}
 }
