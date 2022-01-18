@@ -18,8 +18,9 @@ import crack.fs makePath;
 import crack.io cin, cout, cerr, readAll, FStr;
 import crack.lang Exception;
 
-import .ast Expr, FieldRef, FuncDef, List, FloatLiteral, FuncCall, IfStmt,
-    IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral, VarDef, VarRef;
+import .ast Assignment, Expr, FieldRef, FuncDef, List, FloatLiteral,
+    FuncCall, IfStmt, IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral,
+    VarDef, VarRef;
 import .crash createRootContext, eval, ActiveFunc, Block, Command, CrashError,
     EvalContext, InterpExpr, LexCtx, LiteralStringTerm, SimpleValue,
     V1SrcLoc = SrcLoc, Term, V1VarRef = VarRef,
@@ -153,6 +154,23 @@ class VarDefValue : LimitedValue {
     Object evaluate(EvalContext context) {
         val := initializer ? initializer.evaluate(context) : null;
         context.define(name, SimpleValue(val));
+        return val;
+    }
+}
+
+class VarSetValue : LimitedValue {
+    String name;
+    Value valueExpr;
+
+    oper init(V1SrcLoc loc, String name, Value valueExpr) :
+        LimitedValue(loc),
+        name = name,
+        valueExpr = valueExpr {
+    }
+
+    Object evaluate(EvalContext context) {
+        container := context.lookUp(name);
+        container.set(val := valueExpr.evaluate(context));
         return val;
     }
 }
@@ -354,6 +372,13 @@ class CompileContext @impl Converter {
                                     vd.initializer ?
                                         convert(vd.initializer).asValue() :
                                         null
+                            )
+            );
+        } else if (ass := Assignment.cast(node, null)) {
+            return ValueExprWrapper(
+                VarSetValue(V1SrcLoc(ass.loc.getRow()),
+                            ass.name.text,
+                            convert(ass.value).asValue()
                             )
             );
         } else if (fd := FuncDef.cast(node, null)) {

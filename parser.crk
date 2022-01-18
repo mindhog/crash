@@ -18,8 +18,8 @@ import crack.io cerr, Formatter, FStr;
 import crack.lang AppendBuffer, CString, Exception;
 import crack.runtime atof;
 
-import .ast DynamicList, Expr, FieldRef, FloatLiteral, FuncCall, FuncDef,
-    Ident, IfStmt, IntegerLiteral, List, Node, NominalType, SrcLoc,
+import .ast Assignment, DynamicList, Expr, FieldRef, FloatLiteral, FuncCall,
+    FuncDef, Ident, IfStmt, IntegerLiteral, List, Node, NominalType, SrcLoc,
     StaticList, StringLiteral, TypeSpec, VarDef, VarRef;
 import .floats parseFloat;
 
@@ -510,6 +510,12 @@ class Parser {
                       parseAssignmentValue());
     }
 
+    ## assign ::= ident '=' expr
+    Expr parseAssign(Token ident) {
+        id := makeIdent(ident);
+        return Assignment(ident.getSrcLoc(), id, parseAssignmentValue());
+    }
+
     ## func_def ::= 'func' ident '(' arg_list ')' ':' type_spec static_list
     ##          |   'func' ident '(' arg_list ')' static_list
     ##          |   'func' '(' arg_list ')' static_list
@@ -612,6 +618,8 @@ class Parser {
             tok2 := getToken();
             if (tok2.isColon()) {
                 return parseVarDef(tok);
+            } else if (tok2.isAssign()) {
+                return parseAssign(tok);
             }
             putBack(tok2);
 

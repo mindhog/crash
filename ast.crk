@@ -358,6 +358,22 @@ class VarDef : Expr {
     }
 }
 
+class Assignment : Expr {
+
+    Ident name;
+    Expr value;
+
+    oper init(SrcLoc loc, Ident name, Expr value) :
+        Expr(loc),
+        name = name,
+        value = value {
+    }
+
+    void formatTo(Formatter out) {
+        out `$name = $value`;
+    }
+}
+
 String str(Object obj) {
     return FStr() `$obj`;
 }
@@ -418,6 +434,7 @@ class FuncDef : Expr {
     @abstract void onNominalType(NominalType type);
     @abstract void onInferredType(InferredType type);
     @abstract void onVarDef(VarDef varDef);
+    @abstract void onAssignment(Assignment assignment);
     @abstract void onFuncDef(FuncDef funcDef);
 }
 
@@ -448,6 +465,8 @@ class VisitorImpl @impl Visitor {
             onForStmt(e);
         else if (e := VarDef.cast(expr, null))
             onVarDef(e);
+        else if (e := Assignment.cast(expr, null))
+            onAssignment(e);
         else if (e := FuncDef.cast(expr, null))
             onFuncDef(e);
         else
@@ -525,6 +544,11 @@ class VisitorImpl @impl Visitor {
         onIdent(varDef.name);
         onTypeSpec(varDef.type);
         onExpr(varDef.initializer);
+    }
+
+    void onAssignment(Assignment assignment) {
+        onIdent(assignment.name);
+        onExpr(assignment.value);
     }
 
     void onFuncDef(FuncDef funcDef) {
