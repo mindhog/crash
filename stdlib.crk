@@ -345,13 +345,21 @@ const Regex
     }
 }
 
+## Note that these are 24 hour days, not calendar days.
+@function TimeDelta days(int amount) {
+    return TimeDelta(int32(3600 * 24 * amount), 0);
+}
+
 @function TimeDelta hours(int amount) {
     return TimeDelta(int32(3600 * amount), 0);
 }
+
 @function TimeDelta minutes(int amount) {
     return TimeDelta(int32(60 * amount), 0);
 }
+
 @function TimeDelta seconds(int amount) { return TimeDelta(int32(amount), 0) }
+
 @function TimeDelta millis(int amount) {
     secs := amount / 1000;
     nsecs := int32((amount % 1000) * 1000000);
@@ -376,6 +384,7 @@ const Regex
     obj.define('exists', exists());
     obj.define('DateTime', dateTime());
     obj.define('hours', hours());
+    obj.define('days', days());
     obj.define('minutes', minutes());
     obj.define('seconds', seconds());
     obj.define('millis', millis());

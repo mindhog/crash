@@ -179,10 +179,15 @@ env['TZ'] = 'US/Eastern';
     format [dt isoformat] ' ' [dt nsecs]
     ") == '2021-12-23T14:48:36Z 1000000');
 @assert(ev(I"
-    import [stdlib] DateTime hours minutes seconds millis
-    var dt [[DateTime 2021-12-23T14:48:35Z] + [millis -1001]]
-    format [dt isoformat] ' ' [dt nsecs]
-    ") == '2021-12-23T14:48:33Z 999000000');
+    import [stdlib] DateTime days
+    var dt [[DateTime 2021-12-23T14:48:35Z] + [days 1]]
+    format [dt isoformat]
+    ") == '2021-12-24T14:48:35Z');
+@assert(ev(I"
+    import [stdlib] DateTime days
+    var dt [[DateTime 2021-12-23T14:48:35Z] - [days 1]]
+    format [dt isoformat]
+    ") == '2021-12-22T14:48:35Z');
 
 # Test help by capturing standard output.
 oldCout := cout;
