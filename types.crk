@@ -24,6 +24,8 @@ class Number;
 Number _toInt(String val);
 Number _toFloat(String val);
 
+int _numericCmp(Number a, Number b);
+
 @interface Number {
     @abstract Number plus(Number other);
     @abstract Number minus(Number other);
@@ -57,6 +59,36 @@ Number _toFloat(String val);
         } else {
             throw Exception(FStr() `Cannot convert $val to a number`);
         }
+    }
+
+    class _ObjectCmp = Object {
+        int cmp(Object other) {
+            return Object.cmp(other);
+        }
+    }
+
+    @final int cmp(Number other) {
+        otherNum := Number.cast(other, null);
+        if (otherNum !is null)
+            return _numericCmp(this, otherNum);
+        else
+            return _ObjectCmp(this.oper to Object()).cmp(other);
+    }
+
+    @final bool oper >(Number other) {
+        return _numericCmp(this, other) > 0;
+    }
+
+    @final bool oper >=(Number other) {
+        return _numericCmp(this, other) >= 0;
+    }
+
+    @final bool oper <(Number other) {
+        return _numericCmp(this, other) < 0;
+    }
+
+    @final bool oper <=(Number other) {
+        return _numericCmp(this, other) <= 0;
     }
 }
 
@@ -152,4 +184,22 @@ Number _toInt(String val) {
 
 Number _toFloat(String val) {
     return FloatObj(strtof(CString(val).buffer));
+}
+
+int _numericCmp(Number a, Number b) {
+    if ((ax := IntObj.cast(a, null)) !is null &&
+        (bx := IntObj.cast(b, null)) !is null)
+        return cmp(ax.val, bx.val);
+    else if ((ax := FloatObj.cast(a, null)) !is null &&
+             (bx := IntObj.cast(b, null)) !is null) {
+        return cmp(ax.val, float(bx.val));
+    } else if ((ax := IntObj.cast(a, null)) !is null &&
+             (bx := FloatObj.cast(b, null)))
+        return cmp(float(ax.val), bx.val);
+    else if ((ax := FloatObj.cast(a, null)) !is null &&
+             (bx := FloatObj.cast(b, null)) !is null)
+        return cmp(ax.val, bx.val);
+    else
+        throw Exception(FStr() I`can't compare types $(a.class.name) and \
+                                 $(b.class.name)`);
 }

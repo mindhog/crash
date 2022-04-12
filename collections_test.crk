@@ -24,7 +24,7 @@ Object ev(String code) {
     ctx := createRootContext();
     ctx.define('collections', collections());
     eval("
-        import [collections] array arrayOf map
+        import [collections] array arrayOf map range
         var result ''
         def p {v} {
             set result [format $result $v]
@@ -70,6 +70,12 @@ Object ev(String code) {
 @assert(ev("var m [map a 1 b 2]; m get a") == '1');
 @assert(ev("var m [map a 1 b 2]; m put a xxx; m get a") == 'xxx');
 @assert(ev("[map a 1 b 2] count") == IntObj(2));
+
+@assert(ev("concat [range 1 5]") == '12345');
+@assert(ev("concat [range 0 10 2]") == '0246810');
+@assert(ev("concat [range 1.0 2.05 0.1]") ==
+        '1.0000001.1000001.2000001.3000001.4000001.5000001.6000001.700000'
+        '1.8000001.9000002.000000');
 
 cerr `ok\n`;
 

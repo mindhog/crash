@@ -20,7 +20,7 @@ import crack.io FStr;
 import crack.lang Exception;
 import .crash parseBlockArg, parseString, Block, Builtin, EvalContext, Obj,
     ObjOf, ParmInfo, SimpleValue;
-import .types BoolObj, IntObj;
+import .types BoolObj, IntObj, Number;
 
 @import crack.ann cvars, impl, interface;
 @import .ann function;
@@ -431,10 +431,68 @@ class MapConstructorCmd : Builtin {
     }
 }
 
+class RangeCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns an interator over a range of integer values.
+            range <start> <end> [step]
+
+            Must be called with a start and end, can also be called with an
+            optional step (defaults to 1) indicating the amount to increment
+            the range.
+
+            The start and end value are the first and last values iterated by
+            the range.
+            ';
+    }
+
+    class RangeIter : Iter {
+        @cvars {
+            Number start;
+            Number end;
+            Number step;
+            Number cur;
+        }
+
+        Object elem() {
+            return cur;
+        }
+
+        bool isTrue() {
+            return cur <= end;
+        }
+
+        bool next() {
+            if (cur <= end) {
+                cur = cur.plus(step);
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() < 2 || args.count() > 3)
+            throw Exception('Usage: range <start> <end> [step]');
+
+        start := Number.convertNum(args[0]);
+        end := Number.convertNum(args[1]);
+        Number step;
+        if (args.count() == 3)
+            step = Number.convertNum(args[2]);
+        else
+            step = IntObj(1);
+
+        return wrapIterator(RangeIter(start, end, step, start));
+    }
+}
+
 @function Obj collections() {
     result := Obj();
     result.define('array', ArrayCmd());
     result.define('arrayOf', arrayOf());
     result.define('map', MapConstructorCmd());
+    result.define('range', RangeCmd());
     return result;
 }

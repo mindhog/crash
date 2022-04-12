@@ -19,7 +19,7 @@ import crack.sys env;
 import crash createRootContext, eval, parseString, Builtin, EvalContext,
     ANY_TYPE, API, PPI;
 import stdlib stdlib;
-import types BoolObj, IntObj;
+import types BoolObj, IntObj, Number;
 
 @import crack.ann assert;
 
@@ -199,5 +199,14 @@ cout = oldCout;
         '    \012'
         '    This is the document body.\012'
         );
+
+@assert(Number.convertNum('2') > Number.convertNum('1'));
+@assert(Number.convertNum('2') >= Number.convertNum('1'));
+@assert(Number.convertNum('2') >= Number.convertNum('2'));
+@assert(Number.convertNum('1') < Number.convertNum('2'));
+@assert(Number.convertNum('1') <= Number.convertNum('2'));
+@assert(Number.convertNum('1.5') > Number.convertNum('1'));
+@assert(Number.convertNum('2') > Number.convertNum('1.5'));
+@assert(Number.convertNum('2.5') > Number.convertNum('1.5'));
 
 cerr `ok\n`;
