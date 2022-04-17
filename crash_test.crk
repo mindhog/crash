@@ -15,7 +15,7 @@
 import crack.io cout, cerr;
 import crack.lang Exception;
 import crash eval, parseString, CrashError;
-import types IntObj, FloatObj;
+import types BoolObj, IntObj, FloatObj;
 
 @import crack.ann assert;
 
@@ -264,6 +264,17 @@ try {
     }
     ") == 'good'
 );
+
+# Test short circuit "and" and "or".
+@assert(eval("var x ''; format [and {set x a} {give ''} {set x b}] $x") ==
+         'a'
+        );
+@assert(eval('and') == BoolObj(false));
+@assert(eval(I"
+            var x ''
+            format [or {set x a; give ''} {give true} {set x b}] $x"
+         ) == 'truea'
+        );
 
 cout `ok\n`;
 

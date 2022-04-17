@@ -1483,6 +1483,72 @@ class BreakCmd : Builtin {
     }
 }
 
+class AndCmd : Builtin {
+
+    String getDoc() {
+        return I'Short-circuit "and" command.
+
+            Evaluates each argument as a block in turn until one returns a
+            falsey value.  Returns the result of the final argument evaluated.
+            ';
+    }
+
+    API getParmInfo() {
+        return API![PPI('block', Block, true)];
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        Object result;
+        for (iter :on args) {
+            block := parseBlockArg(args, iter.index);
+
+            context.pushFuncFrame();
+            result = block.evaluate(context);
+            if (result is null && context.yield) {
+                return null;
+            } else if (!result) {
+                context.popFuncFrame();
+                return result;
+            }
+            context.popFuncFrame();
+        }
+        return result ? result : BoolObj(false);
+    }
+}
+
+class OrCmd : Builtin {
+
+    String getDoc() {
+        return I'Short-circuit "or" command.
+
+            Evaluates each argument as a block in turn until one returns a
+            truthy value.  Returns the result of the final argument evaluated.
+            ';
+    }
+
+    API getParmInfo() {
+        return API![PPI('block', Block, true)];
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        Object result;
+        for (iter :on args) {
+            block := parseBlockArg(args, iter.index);
+
+            context.pushFuncFrame();
+            result = block.evaluate(context);
+            if (result is null && context.yield) {
+                return null;
+            } else if (result) {
+                context.popFuncFrame();
+                return result;
+            }
+            context.popFuncFrame();
+        }
+        return result;
+    }
+}
+
 const int
     TOK_EOF = 0,
     TOK_STR = 1,
@@ -1862,6 +1928,8 @@ EvalContext createRootContext() {
     ctx.define('if', IfCmd());
     ctx.define('while', WhileCmd());
     ctx.define('break', BreakCmd());
+    ctx.define('and', AndCmd());
+    ctx.define('or', OrCmd());
     ctx.define('+', AddCmd());
     ctx.define('-', SubCmd());
     ctx.define('*', MulCmd());
