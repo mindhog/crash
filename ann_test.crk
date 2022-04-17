@@ -140,8 +140,13 @@ alias BObj = ObjOf[B];
     return a.val;
 }
 
+@function bool isObjOfB(Object a) {
+    return a.isa(ObjOf[B]);
+}
+
 root.define('B', makeB());
 root.define('getAVal', getAVal());
+root.define('isObjOfB', isObjOfB());
 @assert(eval('getAVal [B 100]', root) == IntObj(100));
 
 # Verify that crash objects can be used as crack objects.
@@ -157,6 +162,10 @@ try {
     @assert(false && 'No exception thrown on bad object type.');
 } catch (CrashError ex) {
 }
+
+# Verify that we don't do conversions when the parameter type is a base class
+# of ObjOf.
+@assert(eval('isObjOfB [B 100]', root));
 
 cout `ok\n`;
 

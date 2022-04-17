@@ -724,15 +724,16 @@ class ObjOf[T] : Obj {
     }
 
     Object convertTo(Class cls) {
+        if (isa(cls))
+            return this;
         if (T.isSubclass(cls))
             return __inst;
-        else
-            return Obj.convertTo(cls);
+        return Obj.convertTo(cls);
     }
 
     int cmp(Object other) {
-        if (o := Obj.cast(other, null))
-            return cmp(__inst, o.convertTo(Object));
+        if (o := ObjOf.cast(other, null))
+            return cmp(__inst, o.__inst);
         return cmp(__inst, other);
     }
 }
