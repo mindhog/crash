@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-function registerGame(cctx) {
+function registerGame(cctx, ectx) {
 
     function print(ctx, args) {
         let text = '';
@@ -22,19 +22,19 @@ function registerGame(cctx) {
         pre.innerText = text;
         $('div').append(pre);
     }
-    cctx.defs['print'] = print;
+    ectx.defs['print'] = cctx.defs['print'] = print;
 
     function header(ctx, args) {
         let hdr = document.createElement('h1');
         hdr.innerText = args[0];
         $('div').append(hdr);
     }
-    cctx.defs['header'] = header;
+    ectx.defs['header'] = cctx.defs['header'] = header;
 
     function evaljs(ctx, args) {
         return eval(args[0]);
     }
-    cctx.defs['evaljs'] = evaljs;
+    ectx.defs['evaljs'] = cctx.defs['evaljs'] = evaljs;
 
     header(null, ['Zulang']);
     print(null, ['Welcome to the world of Zulang!\nAdventure awaits.']);

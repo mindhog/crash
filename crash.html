@@ -45,7 +45,7 @@
             }
         }
         function init() {
-          registerGame(cctx);
+            registerGame(cctx, ectx);
             $('textarea').keypress((event) => {
                 if ((event.which == 10 || event.which == 13) && event.ctrlKey)
                     process(event);
