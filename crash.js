@@ -174,6 +174,22 @@ class FloatLiteral extends Expr {
 
 exports.FloatLiteral = FloatLiteral;
 
+// PrimLiteral nodes let us insert primitive literal values in an AST.
+class PrimLiteral extends Expr {
+    // loc: SrcLoc
+    // val: Any
+    constructor(loc, val) {
+        super(loc);
+        this.val = val;
+    }
+
+    toString() {
+        return this.val + '';
+    }
+}
+
+exports.PrimLiteral = PrimLiteral;
+
 // A list that is to be evaluated during the course of execution.
 class DynamicList extends List {
     // loc: SrcLoc
@@ -806,6 +822,12 @@ function yield_(ctx, args) {
     throw new Yielded(ctx);
 }
 
+function defs(ctx, args) {
+    return ctx.defs;
+}
+
+exports.defs = defs;
+
 class CompileContext {
     constructor(parent) {
         this.parent = parent;
@@ -884,6 +906,13 @@ class EvalContext {
 
     toString() {
         return 'EvalContext';
+    }
+
+    // Import all of the definitions from 'obj' into the current context.
+    importFrom(obj) {
+        for (const [key, value] of Object.entries(obj)) {
+            this.defs[key] = value;
+        }
     }
 }
 
@@ -965,7 +994,9 @@ function listToStr(list) {
 function convert(cctx, node) {
     if (node instanceof StringLiteral) {
         return (ctx) => node.contents;
-    } else if (node instanceof FloatLiteral || node instanceof IntegerLiteral) {
+    } else if (node instanceof FloatLiteral ||
+               node instanceof IntegerLiteral ||
+               node instanceof PrimLiteral) {
         return (ctx) => node.val;
     } else if (node instanceof VarRef) {
         if (cctx.resolve(node.variable.text))
@@ -1045,7 +1076,7 @@ function convert(cctx, node) {
             ctx.defs[node.name.text] = theFunc;
         };
     } else {
-        throw Error('bad node type: ' + node);
+        throw new Error('bad node type: ' + node);
     }
 }
 

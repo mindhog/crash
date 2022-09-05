@@ -175,10 +175,13 @@ let ast = crash.parseString("print 'this is some text' { x := 100 }");
 assert(ast.toString() == "print 'this is some text' {x := 100;};");
 
 // Assert that 'code' (string) evaluates to 'val'.
-function assertEvalsTo(code, val) {
-    let cctx = new crash.CompileContext();
+function assertEvalsTo(code, val, cctx, ectx) {
+    if (cctx === undefined)
+        cctx = new crash.CompileContext();
     let func = crash.convert(cctx, crash.parseString(code));
-    let actual = func(new crash.makeRootContext([func]));
+    if (ectx === undefined)
+        ectx = new crash.makeRootContext([func]);
+    let actual = func(ectx);
     if (actual != val)
         throw Error('assertion failed');
 }
@@ -197,12 +200,25 @@ let cctx = new crash.CompileContext();
 try {
     let code = crash.parseString('1; yield; 2');
     let func = crash.convert(cctx, code);
-    func(new crash.makeRootContext([func]));
+    func(crash.makeRootContext([func]));
     assert(false); // Should have thrown
 } catch (e) {
     if (!(e instanceof crash.Yielded))
         throw e;
     assert(e.ctx.resume() == 2);
 }
+
+// Test exporting from a nested context.
+cctx = new crash.CompileContext();
+let code = crash.parseString("a := 1; func foo() { give 'foo' }");
+code.contents.push(
+    new crash.FuncCall(null, new crash.PrimLiteral(null, crash.defs), [])
+);
+let func = crash.convert(cctx, code);
+let ectx = crash.makeRootContext();
+ectx.importFrom(func(ectx));
+assert(ectx.defs['a'] == 1);
+assertEvalsTo('foo', 'foo', cctx, ectx);
+
 
 console.log('ok');

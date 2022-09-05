@@ -30,8 +30,23 @@
             try {
                 let text = $('textarea').val();
                 let ast = exports.parseString(text, 'input', 1);
+
+                // Add the "defs" function at the end so that the code returns
+                // its set of definitions.
+                ast.contents.push(
+                    new exports.FuncCall(
+                        null,
+                        new exports.PrimLiteral(null, exports.defs),
+                        []
+                    )
+                );
+
                 let code = exports.convert(cctx, ast);
-                code(ectx);
+
+                // Execute the code and import its definitions into the
+                // top-level eval context.
+                ectx.importFrom(code(ectx));
+
                 $('textarea').val('');
                 $('textarea').focus();
             } catch (e) {
