@@ -25,7 +25,7 @@ import crack.strutil StringArray;
 
 import .types BoolObj, IntObj, Number;
 
-@import crack.ann cvars, define, impl, interface;
+@import crack.ann assert, cvars, define, impl, interface;
 @import crack.fieldset_ann fieldset_accessors;
 
 class EvalContext;
@@ -720,7 +720,7 @@ class ObjOf[T] : Obj {
     oper init(T inst) : __inst = inst {}
 
     void formatTo(Formatter out) {
-        out `$(__inst)`;
+        out `ObjOf[$(T.name)]($(__inst))`;
     }
 
     Object convertTo(Class cls) {
@@ -739,7 +739,7 @@ class ObjOf[T] : Obj {
 }
 
 Object convert(Object inst, Class cls) {
-    if (obj := Obj.cast(inst, null))
+    if ((obj := Obj.cast(inst, null)) !is null)
         return obj.convertTo(cls);
     else
         return inst;
@@ -770,6 +770,9 @@ class Command : Value {
         # one already.
         # TODO: split Command into LiteralCommand and EvaledCommand.
         cmdobj := command.evaluate(context);
+
+        if (cmdobj is null)
+            throw Exception('Command evaluates to null.');
 
         # If the command is already a value, just return it.
         if (valobj := Value.cast(cmdobj, null))
@@ -1558,7 +1561,9 @@ const int
 
     # Left and right square brackets.
     TOK_LBRACK = 4,
-    TOK_RBRACK = 5;
+    TOK_RBRACK = 5,
+
+    TOK_PIPE = 6;
 
 class Token {
     int type;
@@ -1649,6 +1654,8 @@ class Toker {
                     return Token(TOK_LBRACK, String(1, ch), lineNum);
                 } else if (ch == b']') {
                     return Token(TOK_RBRACK, String(1, ch), lineNum);
+                } else if (ch == b'|') {
+                    return Token(TOK_PIPE, String(1, ch), lineNum);
                 } else if (ch == b"'") {
                     state = LIT_STR;
                     startLineNum = lineNum;
@@ -1839,6 +1846,16 @@ class ParseContext {
             cmd.args.append(term);
     }
 
+    ## Reduce the current command to a single term.  Following arguments will
+    ## be applied to the term.
+    void reduceCommand() {
+        @assert(cmd);
+        childBlock := Block();
+        childBlock.add(cmd);
+        cmd = null;
+        addTerm(InterpExpr(childBlock));
+    }
+
     void endCommand() {
         if (cmd) {
             block.add(cmd);
@@ -1883,6 +1900,12 @@ class Parser {
                                  expected at this time.`
                     );
                 break;
+            } else if (tok.type == TOK_PIPE) {
+                if (!context.cmd)
+                    throw Exception(
+                        FStr() I`line $(tok.lineNum): Pipe not expected.`
+                    );
+                context.reduceCommand();
             } else {
                 throw Exception(
                     FStr() I`line $(tok.lineNum): Token $(tok) not expected \

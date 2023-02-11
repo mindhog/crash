@@ -276,5 +276,15 @@ try {
          ) == 'truea'
         );
 
+# Verify pipe syntax.
+@assert(eval(I"var o [object {
+                    def foo {} { give $o }
+                    def bar {} { give 'success' }
+               }]
+               o | foo | bar
+              "
+             ) == 'success'
+        );
+
 cout `ok\n`;
 
