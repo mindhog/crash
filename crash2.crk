@@ -15,7 +15,7 @@
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.fs makePath;
-import crack.io cin, cout, cerr, readAll, FStr;
+import crack.io cin, cout, cerr, readAll, Formatter, FStr;
 import crack.lang Exception;
 
 import .ast Assignment, Expr, FieldRef, FuncDef, List, FloatLiteral,
@@ -25,7 +25,7 @@ import .crash createRootContext, eval, ActiveFunc, Block, Command, CrashError,
     EvalContext, InterpExpr, LexCtx, LiteralStringTerm, SimpleValue,
     V1SrcLoc = SrcLoc, Term, V1VarRef = VarRef,
     V1StringLiteral = StringLiteral, Value;
-import .parser parseString;
+import .parser parseString, ParseError;
 import .repl InterpWriter, REPL;
 import .types IntObj, FloatObj;
 
@@ -37,12 +37,39 @@ import .types IntObj, FloatObj;
     @abstract Object evaluate(EvalContext ctx);
 }
 
+class BlockExprValue : Value {
+    @cvars {
+        Block block;
+    }
+
+    Object evaluate(EvalContext context) {
+        vars := context.frame.vars;
+        context.pushFuncFrame();
+        context.frame.vars.parent = vars;
+        result := block.evaluate(context);
+        if (!context.yield)
+            context.popFuncFrame();
+        return result;
+    }
+
+    void set(Object value) {
+        throw Exception('Can not set a block expression.');
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        throw Exception('Can not invoke a block expression.');
+    }
+}
+
 class BlockExprWrapper @impl ExprWrapper  {
     Block block;
     oper init(Block block) : block = block {}
-    Value asValue() { return SimpleValue(block) }
+    Value asValue() { return BlockExprValue(block) }
     Term asTerm() { return InterpExpr(block) }
     Object evaluate(EvalContext ctx) { return eval(block, ctx) }
+    void formatTo(Formatter out) {
+        out `BlockExprWrapper($block))`;
+    }
 }
 
 # Returns an object that converts a non-term Value to a Term
@@ -296,9 +323,9 @@ class CompileContext @impl Converter {
     void define(Def def) { topFrame[def.name] = def }
 
     Block _convertBlock(List list ) {
-            block := Block();
-            for (command :in list.getElements())
-                block.add(convert(command).asValue());
+        block := Block();
+        for (command :in list.getElements())
+            block.add(convert(command).asValue());
         return block;
     }
 
@@ -335,11 +362,8 @@ class CompileContext @impl Converter {
                     def.makeVarRef(V1SrcLoc(vr.loc.getRow()))
                 );
 
-            # Fall through to the old-style.
-            # XXX here and below we should probably just give a parse error.
-            # If we're in crash2 mode, we should be static definitions.
-            return ValueExprWrapper(
-                VarRefValue(V1SrcLoc(vr.loc.getRow()), vr.var.text)
+            throw ParseError(
+                FStr() `$(vr.loc): Undefined identifier $(vr.var.text)`
             );
         } else if (fc := FuncCall.cast(node, null)) {
             Command cmd;
@@ -349,11 +373,9 @@ class CompileContext @impl Converter {
                     return ValueExprWrapper(def.makeFuncCall(this, fc));
 
                 # Handle functions that are not statically defined.
-                cmdTerm := V1VarRef(V1StringLiteral(vr.var.text,
-                                                    V1SrcLoc(fc.loc.getRow())
-                                                    )
-                                    );
-                cmd = Command(cmdTerm);
+                throw ParseError(
+                    FStr() `$(fc.loc): Undefined function $(vr.var.text)`
+                );
             } else {
                 # Extract the reference and use this as the initial command.
                 # There may be more arguments, these will be added to what we
@@ -392,12 +414,12 @@ class CompileContext @impl Converter {
             body := _convertBlock(fd.body);
 
             result := ValueExprWrapper(FuncDefValue(V1SrcLoc(fd.loc.getRow()),
-                                                 fd.name.text,
-                                                 parms,
-                                                 null, // docs
-                                                 body
-                                                 )
-                                    );
+                                                    fd.name.text,
+                                                    parms,
+                                                    null, // docs
+                                                    body
+                                                    )
+                                       );
             popFrame();
             return result;
 

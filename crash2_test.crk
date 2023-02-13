@@ -15,7 +15,7 @@
 import crack.io cerr;
 import .crash createRootContext, Obj;
 import .crash2 convert;
-import .parser parseString;
+import .parser parseString, ParseError;
 
 @import crack.ann assert;
 
@@ -48,5 +48,22 @@ Object eval(String script) {
     x := 100
     x = 200
     format x") == '200');
+
+try {
+    eval("foo");
+    @assert(false);
+} catch (ParseError ex) {
+    @assert(ex.text == 'filename:1:0: Undefined function foo');
+}
+
+try {
+    eval("foo + 1");
+    @assert(false);
+} catch (ParseError ex) {
+    @assert(ex.text == 'filename:1:0: Undefined identifier foo');
+}
+
+@assert(eval("x := (y := 'first'; format y ' thing'); give x") ==
+        'first thing');
 
 cerr `ok\n`;
