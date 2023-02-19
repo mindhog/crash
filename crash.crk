@@ -657,27 +657,27 @@ void _registerBuiltinType(BuiltinType type) {
 ## The "default type" is the type used for most classic crash variables and
 ## functions.  It should be something that can be any object type or null or
 ## Void, but I haven't figured the full hierarchy out yet so I'm using
-## defaultType as a placeholder.
-const defaultType := DefaultType();
-const ANY_TYPE := defaultType;
-_anyType = defaultType;
+## ANY_TYPE as a placeholder.
+const ANY_TYPE := DefaultType();
+const ANY_PARENTS := Array[Type]![ANY_TYPE];
+_anyType = ANY_TYPE;
 
-const objectType := BuiltinType(Object, );
-const objParents := Array[Type]![objectType];
-const classType := BuiltinType(Class, objParents);
-const stringType := BuiltinType(String, objParents);
-const voidType := BuiltinType(void, objParents);
+const OBJECT_TYPE := BuiltinType(Object, ANY_PARENTS);
+const OBJECT_PARENTS := Array[Type]![OBJECT_TYPE];
+const CLASS_TYPE := BuiltinType(Class, OBJECT_PARENTS);
+const STRING_TYPE := BuiltinType(String, OBJECT_PARENTS);
+const VOID_TYPE := BuiltinType(void, ANY_PARENTS);
 
-const callableType := GenericType[CallableType]();
+const CALLABLE_TYPE := GenericType[CallableType]();
 
-const numberType := BuiltinType(Number, objParents);
-const numberParents := Array[Type]![numberType];
-const intType := BuiltinType(IntObj, numberParents);
-const floatType := BuiltinType(FloatObj, numberParents);
+const NUMBER_TYPE := BuiltinType(Number, OBJECT_PARENTS);
+const NUMBER_PARENTS := Array[Type]![NUMBER_TYPE];
+const INT_TYPE := BuiltinType(IntObj, NUMBER_PARENTS);
+const FLOAT_TYPE := BuiltinType(FloatObj, NUMBER_PARENTS);
 
 ## Utility function to create builtin types on demand for the
 ## ParmInfo.create() convenience methods.  We have to define this after
-## objParents.
+## OBJECT_PARENTS.
 TypeSpec _getBuiltinTypeSpec(Class type) {
     if (_builtinTypes is null)
         _builtinTypes = HashMap[uintz, BuiltinType]();
@@ -686,7 +686,7 @@ TypeSpec _getBuiltinTypeSpec(Class type) {
 
     # Create the type here.  We assume it to be derived from Object.  If the
     # class is not, the user should create an instance prior to this.
-    return BuiltinType(type, objParents);
+    return BuiltinType(type, OBJECT_PARENTS);
 }
 
 # The various builtin command classes.
@@ -741,8 +741,8 @@ class ProcCmd : Builtin {
     }
 
     Array[ParmInfo] getParmInfo() {
-        return Array[ParmInfo]![PPI('command', stringType),
-                                PPI('arg', stringType, true)];
+        return Array[ParmInfo]![PPI('command', STRING_TYPE),
+                                PPI('arg', STRING_TYPE, true)];
     }
 }
 
@@ -801,9 +801,9 @@ class VarCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('varName', stringType),
+        return API![PPI('varName', STRING_TYPE),
                     PPI('value', _anyType),
-                    PPI('documentation', stringType, NULL_DEFAULT)
+                    PPI('documentation', STRING_TYPE, NULL_DEFAULT)
                     ];
     }
 
@@ -833,7 +833,7 @@ class SetCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('varName', stringType), PPI('value', _anyType)];
+        return API![PPI('varName', STRING_TYPE), PPI('value', _anyType)];
     }
 }
 
@@ -852,7 +852,7 @@ class SetCmd : Builtin {
         }
 
         API getParmInfo() {
-            return API![PPI('primary', numberType), PPI('arg', numberType)];
+            return API![PPI('primary', NUMBER_TYPE), PPI('arg', NUMBER_TYPE)];
         }
     }
 }
@@ -1066,7 +1066,7 @@ class Block {
     }
 }
 
-const blockType := BuiltinType(Block, objParents);
+const blockType := BuiltinType(Block, OBJECT_PARENTS);
 
 ## An interpolated command: [do something]
 class InterpolatedCommand : Term {
@@ -1361,7 +1361,7 @@ class ImportCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('object', _anyType), PPI('name', stringType)];
+        return API![PPI('object', _anyType), PPI('name', STRING_TYPE)];
     }
 }
 
@@ -1406,7 +1406,7 @@ class EvalfileCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('filename', stringType)];
+        return API![PPI('filename', STRING_TYPE)];
     }
 }
 
@@ -1458,7 +1458,7 @@ class LoadModuleCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('filename', stringType)];
+        return API![PPI('filename', STRING_TYPE)];
     }
 }
 
@@ -1492,7 +1492,7 @@ class SourceCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('filename', stringType)];
+        return API![PPI('filename', STRING_TYPE)];
     }
 }
 
@@ -2155,13 +2155,13 @@ EvalContext createRootContext() {
     ctx.define('!=', NotEqualCmd());
 
     # Builtin classes.
-    ctx.define('String', SimpleValue(stringType));
-    ctx.define('Int', SimpleValue(intType));
-    ctx.define('Float', SimpleValue(floatType));
+    ctx.define('String', SimpleValue(STRING_TYPE));
+    ctx.define('Int', SimpleValue(INT_TYPE));
+    ctx.define('Float', SimpleValue(FLOAT_TYPE));
     ctx.define('Block', SimpleValue(blockType));
-    ctx.define('Object', SimpleValue(objectType));
-    ctx.define('Class', SimpleValue(classType));
-    ctx.define('Void', SimpleValue(voidType));
+    ctx.define('Object', SimpleValue(OBJECT_TYPE));
+    ctx.define('Class', SimpleValue(CLASS_TYPE));
+    ctx.define('Void', SimpleValue(VOID_TYPE));
 
     return ctx;
 }

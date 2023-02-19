@@ -15,23 +15,24 @@
 import crack.cont.array Array;
 import crack.io cout, cerr;
 import crack.lang Exception;
-import crash eval, intType, objectType, parseString, stringType, CompositeType,
-    CrashError, GenericType, Type;
+import crash eval, parseString,
+    CompositeType, CrashError, GenericType, Type, INT_TYPE, OBJECT_TYPE,
+    STRING_TYPE;
 import types BoolObj, IntObj, FloatObj;
 
 @import crack.ann assert;
 
-@assert(stringType.compatibleWith(objectType));
-@assert(stringType.findCommonBase(intType) is objectType);
+@assert(STRING_TYPE.compatibleWith(OBJECT_TYPE));
+@assert(STRING_TYPE.findCommonBase(INT_TYPE) is OBJECT_TYPE);
 
 # Verify that generic instantiations always yield the same objects.
 if (true) {
     generic := GenericType[CompositeType]();
-    @assert(generic.get(Array[Type]![objectType],
-                        Array[Type]![stringType, intType]
+    @assert(generic.get(Array[Type]![OBJECT_TYPE],
+                        Array[Type]![STRING_TYPE, INT_TYPE]
                         ) is
-            generic.get(Array[Type]![objectType],
-                        Array[Type]![stringType, intType]
+            generic.get(Array[Type]![OBJECT_TYPE],
+                        Array[Type]![STRING_TYPE, INT_TYPE]
                         )
             );
 }
