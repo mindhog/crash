@@ -12,12 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import crack.cont.array Array;
 import crack.io cout, cerr;
 import crack.lang Exception;
-import crash eval, parseString, CrashError;
+import crash eval, intType, objectType, parseString, stringType, CompositeType,
+    CrashError, GenericType, Type;
 import types BoolObj, IntObj, FloatObj;
 
 @import crack.ann assert;
+
+@assert(stringType.compatibleWith(objectType));
+@assert(stringType.findCommonBase(intType) is objectType);
+
+# Verify that generic instantiations always yield the same objects.
+if (true) {
+    generic := GenericType[CompositeType]();
+    @assert(generic.get(Array[Type]![objectType],
+                        Array[Type]![stringType, intType]
+                        ) is
+            generic.get(Array[Type]![objectType],
+                        Array[Type]![stringType, intType]
+                        )
+            );
+}
 
 @assert(eval('format foo bar') == 'foobar');
 @assert(eval('format wrong; format foo bar') == 'foobar');
@@ -287,4 +304,3 @@ try {
         );
 
 cout `ok\n`;
-

@@ -23,7 +23,7 @@ import crack.lang cmp, AppendBuffer, Exception, SubString;
 import crack.process Process;
 import crack.strutil StringArray;
 
-import .types BoolObj, IntObj, Number;
+import .types BoolObj, FloatObj, IntObj, Number;
 
 @import crack.ann assert, cvars, define, impl, interface;
 @import crack.fieldset_ann fieldset_accessors;
@@ -440,6 +440,10 @@ class SimpleValue : Value {
     void set(Object value) {
         __val = value;
     }
+
+    ## Accessor to allow us to get the underlying value without evaluating it,
+    ## something we need to do in some special cases.
+    Object oper .val() { return __val }
 }
 
 @abstract class Builtin : Value {
@@ -738,6 +742,147 @@ class ObjOf[T] : Obj {
     }
 }
 
+class Type : Obj {
+
+    ## Parent types, may be null.
+    Array[Type] parents;
+
+    oper init() {}
+    oper init(Array[Type] parents) : parents = parents {}
+
+    ## Returns true if 'other' can be assigned to a variable of this type.
+    bool compatibleWith(Type other) {
+        if (this is other)
+            return true;
+
+        if (parents) {
+            for (par :in parents) {
+                if (par.compatibleWith(other))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    ## Find the common base class, if any, between the receiver and 'other'.
+    ## Returns null if there is none, which shouldn't currently ever be the
+    ## case since everything is derived from Object.
+    ##
+    ## This does a depth first search of its ancestors, so in the case of
+    ## multiple inheritence it will prefer a more distant common ancestor to a
+    ## more immediate one from a secondary parent.
+    ##
+    ## TODO: This whole function kind of falls apart for multiple
+    ## inheritence, where there can potentially be multiple common base
+    ## classes.  I think we need to introduce the concept of a TypeSet
+    ## (derived from Type) to solve it.
+    Type findCommonBase(Type other) {
+        if (other.compatibleWith(this))
+            return this;
+
+        if (parents) {
+            for (par :in parents) {
+                if (ancestor := par.findCommonBase(other))
+                    return ancestor;
+            }
+        }
+
+        return null;
+    }
+
+
+}
+
+class BuiltinType : Type {
+    Class __rep;
+
+    oper init(Class rep) : __rep = rep {}
+    oper init(Class rep, Array[Type] parents) :
+        Type(parents),
+        __rep = rep {
+    }
+
+    void formatTo(Formatter out) {
+        out `$(__rep.name)`;
+    }
+}
+
+## A type composed of other types, i.e. a generic.
+##
+## Don't construct these directly, use the get() method to get a new one.
+class CompositeType : Type {
+    Array[Type] params;
+
+    ## Constructor, use the get() method instead.
+    oper init(Array[Type] parents, Array[Type] params) :
+        Type(parents),
+        params = params {
+    }
+
+    int cmp(CompositeType other) {
+        rc := parents.cmp(other.parents);
+        if (rc) return rc;
+        rc = params.cmp(other.params);
+        return rc;
+    }
+
+    int cmp(Object other) {
+        if (o := CompositeType.cast(other, null))
+            return cmp(o);
+        else
+            return Object.cmp(other);
+    }
+
+    uint makeHashVal() {
+        return parents.makeHashVal() ^ params.makeHashVal();
+    }
+}
+
+## A function type.  There must be at least one parameter, the first parameter
+## is the return type.  Remaining parameters are the argument types.
+class CallableType : CompositeType {
+    oper init(Array[Type] parents, Array[Type] params) :
+        CompositeType(parents, params) {
+        @assert(params.count() > 0);
+    }
+}
+
+## Generic type is a factory for composite types.  It is itself a Crack
+## generic so we can subclass CompositeType.
+class GenericType[T] : Obj {
+    HashMap[T, T] __map = {};
+
+    T get(Array[Type] parents, Array[Type] params) {
+        inst := T(parents, params);
+        result := __map.get(inst);
+        if (result is null) {
+            result = inst;
+            __map[inst] = inst;
+        }
+        return result;
+    }
+}
+
+# Define the BuiltinType's as global constants.
+
+const objectType := BuiltinType(Object);
+const objParents := Array[Type]![objectType];
+const classType := BuiltinType(Class, objParents);
+const stringType := BuiltinType(String, objParents);
+const voidType := BuiltinType(void, objParents);
+
+const callableType := GenericType[CallableType]();
+
+## The "default type" is the type used for most classic crash variables and
+## functions.  It should be something that can be any object type or null or
+## Void, but I haven't figured the full hierarchy out yet so I'm using
+## defaultType as a placeholder.
+defaultType := objectType;
+
+# TODO: these should be derived from Number.
+const intType := BuiltinType(IntObj, objParents);
+const floatType := BuiltinType(FloatObj, objParents);
+
 Object convert(Object inst, Class cls) {
     if ((obj := Obj.cast(inst, null)) !is null)
         return obj.convertTo(cls);
@@ -875,6 +1020,8 @@ class Block {
             out `$cmd\n`;
     }
 }
+
+const blockType := BuiltinType(Block, objParents);
 
 ## An interpolated command: [do something]
 class InterpolatedCommand : Term {
@@ -1961,6 +2108,16 @@ EvalContext createRootContext() {
     ctx.define('%', ModCmd());
     ctx.define('==', EqualCmd());
     ctx.define('!=', NotEqualCmd());
+
+    # Builtin classes.
+    ctx.define('String', SimpleValue(stringType));
+    ctx.define('Int', SimpleValue(intType));
+    ctx.define('Float', SimpleValue(floatType));
+    ctx.define('Block', SimpleValue(blockType));
+    ctx.define('Object', SimpleValue(objectType));
+    ctx.define('Class', SimpleValue(classType));
+    ctx.define('Void', SimpleValue(voidType));
+
     return ctx;
 }
 
