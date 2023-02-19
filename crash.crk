@@ -25,7 +25,7 @@ import crack.strutil StringArray;
 
 import .types BoolObj, FloatObj, IntObj, Number;
 
-@import crack.ann assert, cvars, define, impl, interface;
+@import crack.ann assert, cvars, define, impl, implements, interface;
 @import crack.fieldset_ann fieldset_accessors;
 
 class EvalContext;
@@ -55,7 +55,7 @@ class CrashError : Exception {
 }
 
 ## Type specifier for ParmInfo.
-class TypeSpec {
+@interface TypeSpec {
 
     ## The name of the type in a form suitable for use in documentation.
     ##
@@ -63,26 +63,11 @@ class TypeSpec {
     String oper .desc() { return '<Undefined>' }
 }
 
-## Type specifier that can be used for primitive types.
-class PrimTypeSpec : TypeSpec {
-    @cvars {
-        ## The primitive class used for the type.
-        Class cls;
-    }
+# The "any type."  We can't make this a constant because it has to be defined
+# before all of the type registration machinery.
+TypeSpec _anyType;
 
-    String oper .desc() { return String(cls.name) }
-
-    int cmp(Object other) {
-        if (this is other)
-            return 0;
-        if (o := PrimTypeSpec.cast(other))
-            return uintz(cls) - uintz(o.cls);
-        else
-            return Object.cmp(other);
-    }
-}
-
-const ANY_TYPE := TypeSpec();
+TypeSpec _getBuiltinTypeSpec(Class type);
 
 class ParmInfo;
 
@@ -123,27 +108,33 @@ class ParmInfo {
     ## Create the default ParmInfo object, which is just a single, multi
     ## argument of any type.
     @static ParmInfo createDefault() {
-        return ParmInfo('arg', ANY_TYPE, true, null);
+        return ParmInfo('arg', _anyType, true, null);
     }
 
     ## Create a ParmInfo for a primitive type parameter with no initializer.
     @static ParmInfo create(String name, Class cls) {
-        return ParmInfo(name, PrimTypeSpec(cls), false, null);
+        return ParmInfo(name, _getBuiltinTypeSpec(cls), false, null);
     }
 
     @static ParmInfo create(String name, Class cls, Initializer init) {
-        return ParmInfo(name, PrimTypeSpec(cls), false, init);
+        return ParmInfo(name, _getBuiltinTypeSpec(cls), false, init);
     }
 
     ## Create a ParmInfo for a primitive type parameter with no initializer
     ## and optional "multiple" semantics.
     @static ParmInfo create(String name, Class cls, bool mult) {
-        return ParmInfo(name, PrimTypeSpec(cls), mult, null);
+        return ParmInfo(name, _getBuiltinTypeSpec(cls), mult, null);
     }
 
     ## Create a non-multiple ParmInfo with the given typespec.
     @static ParmInfo create(String name, TypeSpec spec) {
         return ParmInfo(name, spec, false, null);
+    }
+
+    ## Create a ParmInfo with the given typespec and optional "multiple"
+    ## semantics.
+    @static ParmInfo create(String name, TypeSpec spec, bool mult) {
+        return ParmInfo(name, spec, mult, null);
     }
 
     void formatTo(Formatter out) {
@@ -152,7 +143,7 @@ class ParmInfo {
             return;
         }
 
-        if (type is ANY_TYPE)
+        if (type is _anyType)
             out `$name`;
         else
             out `$name:$(type.desc)`;
@@ -456,220 +447,6 @@ class SimpleValue : Value {
     }
 }
 
-class PrintCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Prints all of the arguments to standard output.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        for (arg :in args)
-            cout `$arg`;
-        return null;
-    }
-}
-
-class FormatCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Returns a string containing all of the arguments formatted.
-
-            This is the equivalent of the "print" command only instead of
-            writing to standard output, it formats a string.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        StringFormatter tmp = {};
-        for (arg :in args) {
-            tmp `$arg`;
-        }
-
-        return tmp.string();
-    }
-}
-
-## Run a Subprocess.
-class ProcCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Run a subprocess, returns the result code.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        StringArray argv = {};
-        for (arg :in args)
-            argv.append(FStr() `$arg`);
-        return IntObj(Process(argv, 0).run() & 0xff);
-    }
-
-    Array[ParmInfo] getParmInfo() {
-        return Array[ParmInfo]![PPI('command', String),
-                                PPI('arg', String, true)];
-    }
-}
-
-## "give" just returns the value of its first argument.
-class GiveCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Returns the value of the first argument.
-
-            "give" is useful in cases where you want to return the value of a
-            variable or constant from a block.  For example:
-
-                var result [if {give $condition} {give true} else {give false}]
-
-            Without the "give" statements above, the interpreter would assume
-            that $condition, true and false were commands.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        if (args.count() != 1)
-            throw Exception('"give" must have exactly one argument.');
-        return args[0];
-    }
-
-    Array[ParmInfo] getParmInfo() {
-        return Array[ParmInfo]![PPI('arg', ANY_TYPE)];
-    }
-}
-
-class VarCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Define a variable.
-
-            Defines a variable in the current context.  The variable will be
-            visible in the current context and all nested contexts, and will
-            be cleaned up when the context goes out of scope.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        ac := args.count();
-        if (ac < 2 || ac > 3)
-            throw Exception('usage: var <var> <value>');
-
-        String var = String.cast(args[0], null);
-        if (var is null)
-            throw Exception('first argument of var must be a string');
-
-        Object val = args[1];
-        context.define(var,
-                       SimpleValue(val, ac == 3 ? String.cast(args[2]) : null)
-                       );
-        return val;
-    }
-
-    API getParmInfo() {
-        return API![PPI('varName', String),
-                    PPI('value', ANY_TYPE),
-                    PPI('documentation', String, NULL_DEFAULT)
-                    ];
-    }
-
-}
-
-class SetCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Set an existing variable to the given value.
-
-            Note that the variable must have already been defined using the
-            "var" command.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        if (args.count() != 2)
-            throw Exception('usage: set <var> <value>');
-
-        String var = String.cast(args[0], null);
-        if (var is null)
-            throw Exception('first argument of set must be a string');
-
-        Object val = args[1];
-        context.set(var, val);
-        return val;
-    }
-
-    API getParmInfo() {
-        return API![PPI('varName', String), PPI('value', ANY_TYPE)];
-    }
-}
-
-# Numeric operations.
-@define opcmd(cls, meth, op, doc) {
-    class cls : Builtin {
-        String getDoc() { return doc }
-        Object invoke(EvalContext context, Array[Object] args) {
-            if (!args)
-                throw Exception('usage: ' $op ' <number> ...');
-
-            accum := Number.convertNum(args[0]);
-            for (arg :in args.subarray(1))
-                accum = accum.meth(Number.convertNum(arg));
-            return accum;
-        }
-
-        API getParmInfo() {
-            return API![PPI('primary', Number), PPI('arg', Number)];
-        }
-    }
-}
-
-@opcmd(AddCmd, plus, +, 'Returns the sum of all arguments');
-@opcmd(SubCmd, minus, -, 'Returns the first argument minus all others');
-@opcmd(MulCmd, times, *, 'Returns the product of all arguments');
-@opcmd(DivCmd, div, /,
-       I'Returns the first argument divided by the second (and that divided
-         by the third, and so on)');
-@opcmd(ModCmd, mod, %,
-       I'Returns the remainder of the first argument divided by the second
-         (and that divided by the third, and so on)');
-
-class EqualCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Returns true if its two arguments are equal, false if not.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        if (args.count() != 2)
-            throw Exception('usage: == <val1> <val2>');
-
-        return BoolObj(args[0] == args[1]);
-    }
-
-    API getParmInfo() {
-        return API![PPI('val1', ANY_TYPE), PPI('val2', ANY_TYPE)];
-    }
-}
-
-class NotEqualCmd : Builtin {
-    String getDoc() {
-        return I'\
-            Returns true if its two arguments are not equal, false if not.
-            ';
-    }
-
-    Object invoke(EvalContext context, Array[Object] args) {
-        if (args.count() != 2)
-            throw Exception('usage: != <val1> <val2>');
-
-        return BoolObj(args[0] != args[1]);
-    }
-
-    API getParmInfo() {
-        return API![PPI('val1', ANY_TYPE), PPI('val2', ANY_TYPE)];
-    }
-}
-
 ## A crash object - this has its own variable dictionary that is injected as a
 ## stack frame when a method is invoked.
 class Obj : Builtin {
@@ -719,30 +496,7 @@ class Obj : Builtin {
     }
 }
 
-class ObjOf[T] : Obj {
-    T __inst;
-    oper init(T inst) : __inst = inst {}
-
-    void formatTo(Formatter out) {
-        out `ObjOf[$(T.name)]($(__inst))`;
-    }
-
-    Object convertTo(Class cls) {
-        if (isa(cls))
-            return this;
-        if (T.isSubclass(cls))
-            return __inst;
-        return Obj.convertTo(cls);
-    }
-
-    int cmp(Object other) {
-        if (o := ObjOf.cast(other, null))
-            return cmp(__inst, o.__inst);
-        return cmp(__inst, other);
-    }
-}
-
-class Type : Obj {
+class Type : Obj @implements TypeSpec {
 
     ## Parent types, may be null.
     Array[Type] parents;
@@ -790,21 +544,41 @@ class Type : Obj {
         return null;
     }
 
-
+    String oper .desc() { return FStr() `$this` }
 }
+
+class DefaultType : Type {
+    void formatTo(Formatter out) {
+        out `Any`;
+    }
+}
+
+class BuiltinType;
+void _registerBuiltinType(BuiltinType type);
 
 class BuiltinType : Type {
     Class __rep;
 
-    oper init(Class rep) : __rep = rep {}
+    ## Construct a class with no parents.  Register the BuiltinType in a
+    ## global registry.
+    oper init(Class rep) : __rep = rep {
+        _registerBuiltinType(this);
+    }
+
+    ## Construct a class with a set of parents.  Register the BuiltinType in a
+    ## global registry.
     oper init(Class rep, Array[Type] parents) :
         Type(parents),
         __rep = rep {
+        _registerBuiltinType(this);
     }
 
     void formatTo(Formatter out) {
         out `$(__rep.name)`;
     }
+
+    ## The primitive class that this object is representing.
+    @final Class oper .rep() { return __rep }
 }
 
 ## A type composed of other types, i.e. a generic.
@@ -863,9 +637,32 @@ class GenericType[T] : Obj {
     }
 }
 
-# Define the BuiltinType's as global constants.
 
-const objectType := BuiltinType(Object);
+# BuiltinType registration system.  Only one BuiltinType can exist for each
+# primitive class, so we track them in a registry hashtable, which must be
+# defined before any BuiltinTypes are.
+_builtinTypes := HashMap[uintz, BuiltinType]();
+
+void _registerBuiltinType(BuiltinType type) {
+    if (_builtinTypes is null)
+        _builtinTypes = HashMap[uintz, BuiltinType]();
+    else if (_builtinTypes.hasKey(uintz(type.rep)))
+        throw Exception(FStr() `Builtin type for $(type) already defined.`);
+
+    _builtinTypes[uintz(type.rep)] = type;
+}
+
+# Define the essential type hierarchy as global constants.
+
+## The "default type" is the type used for most classic crash variables and
+## functions.  It should be something that can be any object type or null or
+## Void, but I haven't figured the full hierarchy out yet so I'm using
+## defaultType as a placeholder.
+const defaultType := DefaultType();
+const ANY_TYPE := defaultType;
+_anyType = defaultType;
+
+const objectType := BuiltinType(Object, );
 const objParents := Array[Type]![objectType];
 const classType := BuiltinType(Class, objParents);
 const stringType := BuiltinType(String, objParents);
@@ -873,15 +670,263 @@ const voidType := BuiltinType(void, objParents);
 
 const callableType := GenericType[CallableType]();
 
-## The "default type" is the type used for most classic crash variables and
-## functions.  It should be something that can be any object type or null or
-## Void, but I haven't figured the full hierarchy out yet so I'm using
-## defaultType as a placeholder.
-defaultType := objectType;
+const numberType := BuiltinType(Number, objParents);
+const numberParents := Array[Type]![numberType];
+const intType := BuiltinType(IntObj, numberParents);
+const floatType := BuiltinType(FloatObj, numberParents);
 
-# TODO: these should be derived from Number.
-const intType := BuiltinType(IntObj, objParents);
-const floatType := BuiltinType(FloatObj, objParents);
+## Utility function to create builtin types on demand for the
+## ParmInfo.create() convenience methods.  We have to define this after
+## objParents.
+TypeSpec _getBuiltinTypeSpec(Class type) {
+    if (_builtinTypes is null)
+        _builtinTypes = HashMap[uintz, BuiltinType]();
+    else if (t := _builtinTypes.get(uintz(type)))
+        return t;
+
+    # Create the type here.  We assume it to be derived from Object.  If the
+    # class is not, the user should create an instance prior to this.
+    return BuiltinType(type, objParents);
+}
+
+# The various builtin command classes.
+
+class PrintCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Prints all of the arguments to standard output.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        for (arg :in args)
+            cout `$arg`;
+        return null;
+    }
+}
+
+class FormatCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns a string containing all of the arguments formatted.
+
+            This is the equivalent of the "print" command only instead of
+            writing to standard output, it formats a string.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        StringFormatter tmp = {};
+        for (arg :in args) {
+            tmp `$arg`;
+        }
+
+        return tmp.string();
+    }
+}
+
+## Run a Subprocess.
+class ProcCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Run a subprocess, returns the result code.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        StringArray argv = {};
+        for (arg :in args)
+            argv.append(FStr() `$arg`);
+        return IntObj(Process(argv, 0).run() & 0xff);
+    }
+
+    Array[ParmInfo] getParmInfo() {
+        return Array[ParmInfo]![PPI('command', stringType),
+                                PPI('arg', stringType, true)];
+    }
+}
+
+## "give" just returns the value of its first argument.
+class GiveCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns the value of the first argument.
+
+            "give" is useful in cases where you want to return the value of a
+            variable or constant from a block.  For example:
+
+                var result [if {give $condition} {give true} else {give false}]
+
+            Without the "give" statements above, the interpreter would assume
+            that $condition, true and false were commands.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 1)
+            throw Exception('"give" must have exactly one argument.');
+        return args[0];
+    }
+
+    Array[ParmInfo] getParmInfo() {
+        return Array[ParmInfo]![PPI('arg', _anyType)];
+    }
+}
+
+class VarCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Define a variable.
+
+            Defines a variable in the current context.  The variable will be
+            visible in the current context and all nested contexts, and will
+            be cleaned up when the context goes out of scope.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        ac := args.count();
+        if (ac < 2 || ac > 3)
+            throw Exception('usage: var <var> <value>');
+
+        String var = String.cast(args[0], null);
+        if (var is null)
+            throw Exception('first argument of var must be a string');
+
+        Object val = args[1];
+        context.define(var,
+                       SimpleValue(val, ac == 3 ? String.cast(args[2]) : null)
+                       );
+        return val;
+    }
+
+    API getParmInfo() {
+        return API![PPI('varName', stringType),
+                    PPI('value', _anyType),
+                    PPI('documentation', stringType, NULL_DEFAULT)
+                    ];
+    }
+
+}
+
+class SetCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Set an existing variable to the given value.
+
+            Note that the variable must have already been defined using the
+            "var" command.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: set <var> <value>');
+
+        String var = String.cast(args[0], null);
+        if (var is null)
+            throw Exception('first argument of set must be a string');
+
+        Object val = args[1];
+        context.set(var, val);
+        return val;
+    }
+
+    API getParmInfo() {
+        return API![PPI('varName', stringType), PPI('value', _anyType)];
+    }
+}
+
+# Numeric operations.
+@define opcmd(cls, meth, op, doc) {
+    class cls : Builtin {
+        String getDoc() { return doc }
+        Object invoke(EvalContext context, Array[Object] args) {
+            if (!args)
+                throw Exception('usage: ' $op ' <number> ...');
+
+            accum := Number.convertNum(args[0]);
+            for (arg :in args.subarray(1))
+                accum = accum.meth(Number.convertNum(arg));
+            return accum;
+        }
+
+        API getParmInfo() {
+            return API![PPI('primary', numberType), PPI('arg', numberType)];
+        }
+    }
+}
+
+@opcmd(AddCmd, plus, +, 'Returns the sum of all arguments');
+@opcmd(SubCmd, minus, -, 'Returns the first argument minus all others');
+@opcmd(MulCmd, times, *, 'Returns the product of all arguments');
+@opcmd(DivCmd, div, /,
+       I'Returns the first argument divided by the second (and that divided
+         by the third, and so on)');
+@opcmd(ModCmd, mod, %,
+       I'Returns the remainder of the first argument divided by the second
+         (and that divided by the third, and so on)');
+
+class EqualCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns true if its two arguments are equal, false if not.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: == <val1> <val2>');
+
+        return BoolObj(args[0] == args[1]);
+    }
+
+    API getParmInfo() {
+        return API![PPI('val1', _anyType), PPI('val2', _anyType)];
+    }
+}
+
+class NotEqualCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns true if its two arguments are not equal, false if not.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: != <val1> <val2>');
+
+        return BoolObj(args[0] != args[1]);
+    }
+
+    API getParmInfo() {
+        return API![PPI('val1', _anyType), PPI('val2', _anyType)];
+    }
+}
+
+class ObjOf[T] : Obj {
+    T __inst;
+    oper init(T inst) : __inst = inst {}
+
+    void formatTo(Formatter out) {
+        out `ObjOf[$(T.name)]($(__inst))`;
+    }
+
+    Object convertTo(Class cls) {
+        if (isa(cls))
+            return this;
+        if (T.isSubclass(cls))
+            return __inst;
+        return Obj.convertTo(cls);
+    }
+
+    int cmp(Object other) {
+        if (o := ObjOf.cast(other, null))
+            return cmp(__inst, o.__inst);
+        return cmp(__inst, other);
+    }
+}
 
 Object convert(Object inst, Class cls) {
     if ((obj := Obj.cast(inst, null)) !is null)
@@ -1291,7 +1336,7 @@ class ObjectCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('block', Block)];
+        return API![PPI('block', blockType)];
     }
 }
 
@@ -1316,7 +1361,7 @@ class ImportCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('object', ANY_TYPE), PPI('name', String)];
+        return API![PPI('object', _anyType), PPI('name', stringType)];
     }
 }
 
@@ -1361,7 +1406,7 @@ class EvalfileCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('filename', String)];
+        return API![PPI('filename', stringType)];
     }
 }
 
@@ -1413,7 +1458,7 @@ class LoadModuleCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('filename', String)];
+        return API![PPI('filename', stringType)];
     }
 }
 
@@ -1447,7 +1492,7 @@ class SourceCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('filename', String)];
+        return API![PPI('filename', stringType)];
     }
 }
 
@@ -1645,7 +1690,7 @@ class AndCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('block', Block, true)];
+        return API![PPI('block', blockType, true)];
     }
 
     Object invoke(EvalContext context, Array[Object] args) {
@@ -1678,7 +1723,7 @@ class OrCmd : Builtin {
     }
 
     API getParmInfo() {
-        return API![PPI('block', Block, true)];
+        return API![PPI('block', blockType, true)];
     }
 
     Object invoke(EvalContext context, Array[Object] args) {
