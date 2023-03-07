@@ -25,7 +25,7 @@ import crack.strutil split;
 import crack.sys env;
 import crack.time Date, Time, TimeDelta, BILLION;
 import .crash createRootContext, eval, Builtin, EvalContext, Obj, ObjOf, Value,
-    ParmInfo, ANY_TYPE;
+    ParmInfo;
 import .types BoolObj, IntObj;
 
 @import crack.ann cvars;

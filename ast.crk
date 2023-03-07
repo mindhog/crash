@@ -339,7 +339,7 @@ class VarDef : Expr {
     TypeSpec type;
 
     ## Initializer expression for the variable.
-    ## Nullable.
+    ## Nullable.  Either this or 'type' must be specified.
     Expr initializer;
 
     oper init(SrcLoc loc, Ident name, TypeSpec type, Expr initializer) :

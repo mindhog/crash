@@ -16,25 +16,29 @@ import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.fs makePath;
 import crack.io cin, cout, cerr, readAll, Formatter, FStr;
-import crack.lang Exception;
+import crack.lang AssertionError, Exception;
 
 import .ast Assignment, Expr, FieldRef, FuncDef, List, FloatLiteral,
-    FuncCall, IfStmt, IntegerLiteral, Node, SrcLoc, StaticList, StringLiteral,
-    VarDef, VarRef;
-import .crash createRootContext, eval, ActiveFunc, Block, Command, CrashError,
-    EvalContext, InterpExpr, LexCtx, LiteralStringTerm, SimpleValue,
-    V1SrcLoc = SrcLoc, Term, V1VarRef = VarRef,
-    V1StringLiteral = StringLiteral, Value;
+    FuncCall, IfStmt, InferredType, IntegerLiteral, Node, NominalType,
+    SrcLoc, StaticList, StringLiteral, TypeSpec, VarDef, VarRef;
+import .crash blockType, createRootContext, eval, getCallableTypeForValue,
+    ActiveFunc, Block, CallableType, Command, CrashError, EvalContext,
+    GenericFuncType, InterpExpr, LexCtx, LiteralStringTerm, MultiParm,
+    SimpleValue, Term, Type, V1SrcLoc = SrcLoc, V1VarRef = VarRef,
+    V1StringLiteral = StringLiteral, Value, ANY_TYPE, CALLABLE_GENERIC,
+    CLASS_TYPE, FLOAT_TYPE, INT_TYPE, OBJECT_PARENTS, OBJECT_TYPE,
+    STRING_TYPE, VOID_TYPE;
 import .parser parseString, ParseError;
 import .repl InterpWriter, REPL;
 import .types IntObj, FloatObj;
 
-@import crack.ann cvars, impl, interface, SCOPE_NAME;
+@import crack.ann assert, cvars, impl, interface, SCOPE_NAME;
 
 @interface ExprWrapper {
     @abstract Value asValue();
     @abstract Term asTerm();
     @abstract Object evaluate(EvalContext ctx);
+    @abstract Type oper .type();
 }
 
 class BlockExprValue : Value {
@@ -61,15 +65,21 @@ class BlockExprValue : Value {
     }
 }
 
+## The type of a BlockExprWrapper is the type of the last statement.
 class BlockExprWrapper @impl ExprWrapper  {
     Block block;
-    oper init(Block block) : block = block {}
+    Type evalType;
+    oper init(Block block, Type evalType) :
+        block = block,
+        evalType = evalType {
+    }
     Value asValue() { return BlockExprValue(block) }
     Term asTerm() { return InterpExpr(block) }
     Object evaluate(EvalContext ctx) { return eval(block, ctx) }
     void formatTo(Formatter out) {
-        out `BlockExprWrapper($block))`;
+        out `BlockExprWrapper($block, $evalType))`;
     }
+    Type oper .type() { return evalType }
 }
 
 # Returns an object that converts a non-term Value to a Term
@@ -83,7 +93,8 @@ class ValueTerm : Term {
 
 class ValueExprWrapper @impl ExprWrapper {
     Value value;
-    oper init(Value value) : value = value {}
+    Type __type;
+    oper init(Value value, Type type) : value = value, __type = type {}
     Value asValue() { return value }
     Term asTerm() {
         return ValueTerm(value);
@@ -93,6 +104,12 @@ class ValueExprWrapper @impl ExprWrapper {
         block := Block();
         block.add(value);
         return eval(block, ctx);
+    }
+
+    Type oper .type() { return __type }
+
+    void formatTo(Formatter out) {
+        out `ValueExprWrapper($value)`;
     }
 }
 
@@ -106,11 +123,19 @@ class LiteralObjectTerm : Term {
 
 class LiteralObjectWrapper @impl ExprWrapper {
     Object val;
+    Type __type;
     V1SrcLoc loc;
-    oper init(Object val, V1SrcLoc loc) : val = val, loc = loc {}
+
+    oper init(Object val, Type type, V1SrcLoc loc) :
+        val = val,
+        __type = type,
+        loc = loc  {
+    }
+
     Value asValue() { return SimpleValue(val) }
     Term asTerm() { return LiteralObjectTerm(val, loc) }
     Object evaluate(EvalContext ctx) { return val }
+    Type oper .type() { return __type }
 }
 
 @abstract class LimitedValue : Value {
@@ -248,8 +273,9 @@ class FuncDefValue : LimitedValue {
 
 class Def {
     String name;
+    Type type;
 
-    oper init(String name) : name = name {}
+    oper init(String name, Type type) : name = name, type = type {}
 
     ## Return a value representing the invocation of a definition.
     Value makeFuncCall(Converter conv, FuncCall funcCall) {
@@ -269,6 +295,20 @@ class Def {
     }
 }
 
+## A Def object for types, which are special in that they have a compile
+## time value.
+##
+## You generally want to use the "rep" attribute to get the value of this, as
+## the "type" attribute is always the "Class" type.
+class TypeDef : Def {
+    ## The type that is being represented.
+    Type rep;
+
+    ## Constructor.  Note that the type ws pass in is "rep", the represented
+    ## type, rather than the type of this value, which is always "Class" type.
+    oper init(String name, Type rep) : Def(name, CLASS_TYPE), rep = rep {}
+}
+
 class CompileContext @impl Converter {
     class Frame : HashMap[String, Def] {
         Frame parent;
@@ -277,7 +317,7 @@ class CompileContext @impl Converter {
         Def lookUp(String name) {
             if (result := get(name))
                 return result;
-            else if (parent)
+            else if (parent !is null)
                 return parent.lookUp(name);
             else
                 return null;
@@ -322,11 +362,59 @@ class CompileContext @impl Converter {
 
     void define(Def def) { topFrame[def.name] = def }
 
-    Block _convertBlock(List list ) {
+    BlockExprWrapper _convertBlock(List list ) {
         block := Block();
-        for (command :in list.getElements())
-            block.add(convert(command).asValue());
-        return block;
+        Type lastType = VOID_TYPE;
+        for (command :in list.getElements()) {
+            expr := convert(command);
+            block.add(expr.asValue());
+            lastType = expr.type;
+        }
+        return BlockExprWrapper(block, lastType);
+    }
+
+    ## Return the Type identified by the TypeSpec AST node.
+    Type evalTypeAST(TypeSpec typeSpec) {
+        if (t := NominalType.cast(typeSpec, null)) {
+            # It's just a name.  Lookup the identifier.
+            def := lookUp(t.name.text);
+            if (!def)
+                throw ParseError(
+                    FStr() `$(t.loc): Unknown type: $(t.name.text)`
+                );
+
+            typeDef := TypeDef.cast(def, null);
+            if (!typeDef)
+                throw ParseError(
+                    FStr() `$(t.loc): $(t.name.text) is not a type.`
+                );
+
+            return typeDef.rep;
+        } else if (t := InferredType.cast(typeSpec, null)) {
+            # It's an inferred type.  Do full conversion on the expression
+            # and use the resulting type.
+            exprWrapper := convert(t.expr);
+            return exprWrapper.type;
+        } else {
+            throw AssertionError(
+                FStr() `Unknown type AST: $(typeSpec.class.name)`
+            );
+        }
+    }
+
+    ## Return the function's return type.  Returns null if the return type
+    ## should be inferred from the function's return statements.
+    ##
+    ## The expression should evaluate to a FuncType.
+    Type evalFuncReturnType(Expr func) {
+        expr := convert(func);
+        callable := CallableType.cast(expr.type, null);
+        if (callable is null)
+            throw ParseError(
+                FStr() `$(func.loc): Expression is not callable.`
+            );
+
+        return callable.params[0];
     }
 
     ## Compile an AST node to a value.
@@ -334,102 +422,278 @@ class CompileContext @impl Converter {
         if (list := StaticList.cast(node, null)) {
             subctx := makeSubContext();
             block := _convertBlock(list);
-            return LiteralObjectWrapper(block, V1SrcLoc(list.loc.getRow()));
+
+            # Static blocks are of blockType instead of the type of the last
+            # expression.
+            return LiteralObjectWrapper(block.block, blockType,
+                                        V1SrcLoc(list.loc.getRow())
+                                        );
         } else if (list := List.cast(node, null)) {
             block := _convertBlock(list);
-            return BlockExprWrapper(block);
+            return block;
         } else if (strlit := StringLiteral.cast(node, null)) {
             return LiteralObjectWrapper(strlit.contents,
+                                        STRING_TYPE,
                                         V1SrcLoc(strlit.loc.getRow())
                                         );
         } else if (intlit := IntegerLiteral.cast(node, null)) {
             return LiteralObjectWrapper(IntObj(intlit.val),
+                                        INT_TYPE,
                                         V1SrcLoc(intlit.loc.getRow())
                                         );
         } else if (floatlit := FloatLiteral.cast(node, null)) {
             return LiteralObjectWrapper(FloatObj(floatlit.val),
+                                        FLOAT_TYPE,
                                         V1SrcLoc(floatlit.loc.getRow())
                                         );
         } else if (stmt := IfStmt.cast(node, null)) {
             cond := convert(stmt.cond).asValue();
-            onTrue := InterpExpr(_convertBlock(stmt.onTrue));
-            onFalse := stmt.onFalse ? InterpExpr(_convertBlock(stmt.onFalse)) : null;
-            cmd := IfStmtValue(V1SrcLoc(stmt.loc.getRow()), cond, onTrue, onFalse);
-            return ValueExprWrapper(cmd);
+            block := _convertBlock(stmt.onTrue);
+            onTrueType := block.type;
+            onTrue := InterpExpr(block.block);
+            InterpExpr onFalse;
+            Type onFalseType = VOID_TYPE;
+            if (stmt.onFalse) {
+                block := _convertBlock(stmt.onFalse);
+                onFalse = InterpExpr(block.block);
+                onFalseType = block.type;
+            }
+
+            # The type of the "if" expression is the common base of the true
+            # and false branches.
+            type := onTrueType.findCommonBase(onFalseType);
+
+            cmd := IfStmtValue(V1SrcLoc(stmt.loc.getRow()), cond, onTrue,
+                               onFalse);
+            return ValueExprWrapper(cmd, type);
         } else if (vr := VarRef.cast(node, null)) {
             if (def := lookUp(vr.var.text))
                 return ValueExprWrapper(
-                    def.makeVarRef(V1SrcLoc(vr.loc.getRow()))
+                    def.makeVarRef(V1SrcLoc(vr.loc.getRow())),
+                    def.type
                 );
 
             throw ParseError(
                 FStr() `$(vr.loc): Undefined identifier $(vr.var.text)`
             );
+        } else if (nt := NominalType.cast(node, null)) {
+            def := lookUp(nt.name.text);
+
+            if (!def)
+                throw ParseError(
+                    FStr() `$(nt.loc): Undefined identifier $(nt.name.text)`
+                );
+
+            td := TypeDef.cast(def, null);
+            if (!td)
+                throw ParseError(
+                    FStr() `$(nt.loc): $(nt.name.text) is not a type.`
+                );
+
+            return ValueExprWrapper(
+                def.makeVarRef(V1SrcLoc(nt.loc.getRow())),
+                td.rep
+            );
         } else if (fc := FuncCall.cast(node, null)) {
             Command cmd;
-            if (vr := VarRef.cast(fc.func, null)) {
-                if (def := lookUp(vr.var.text))
-                    # We've got a definition.  Just convert to a function call.
-                    return ValueExprWrapper(def.makeFuncCall(this, fc));
 
-                # Handle functions that are not statically defined.
-                throw ParseError(
-                    FStr() `$(fc.loc): Undefined function $(vr.var.text)`
-                );
-            } else {
-                # Extract the reference and use this as the initial command.
-                # There may be more arguments, these will be added to what we
-                # have got already.
-                cmd = Command.cast(convert(fc.func).asValue());
+            # Evaluate the function expression and obtain the return type.
+            funcExpr := convert(fc.func);
+
+            # Convert all of the arguments.
+            args := Array[ExprWrapper]();
+            for (arg :in fc.args)
+                args.append(convert(arg));
+
+            funcType := funcExpr.type;
+
+            # If the function type is a GenericFuncType, specialize it based
+            # on the types of the arguments.
+            if (cft := GenericFuncType.cast(funcType, null)) {
+                paramTypes := Array[Type]();
+                for (arg :in args)
+                    paramTypes.append(arg.type);
+                funcType = cft.getTypeFor(paramTypes);
+                if (funcType is null)
+                    throw ParseError(
+                        FStr() I`$(fc.func.loc): Generic function can not be \
+                                 specialized for these arguments.`
+                    );
             }
 
-            for (arg :in fc.args)
-                cmd.args.append(convert(arg).asTerm());
-            return ValueExprWrapper(cmd);
+            callableType := CallableType.cast(funcType, null);
+            if (callableType is null)
+                throw ParseError(
+                    FStr() `$(fc.func.loc): Expression is not callable.`
+                );
+            Type returnType = callableType.params[0];
+
+            # Extract the reference and use this as the initial command.
+            # There may be more arguments, these will be added to what we
+            # have got already.
+            cmd = Command(funcExpr.asTerm());
+
+            typeIndex := 1;
+            argIndex := 0;
+            ExprWrapper argExpr;
+
+            while (argIndex < fc.args.count() &&
+                   typeIndex < callableType.params.count()) {
+
+                # Convert the argument (unless we already did so and didn't
+                # consume it).
+                if (argExpr is null)
+                    argExpr = convert(fc.args[argIndex]);
+
+                if (mp :=
+                        MultiParm.cast(callableType.params[typeIndex], null)
+                    ) {
+
+                    # If this is a multi-parm type and it doesn't match, skip
+                    # to the next one.
+                    if (!argExpr.type.compatibleWith(mp.params[0])) {
+                        ++typeIndex;
+                        continue;
+                    }
+                } else {
+                    if (!argExpr.type.compatibleWith(
+                            callableType.params[typeIndex]
+                         )
+                        )
+                        throw ParseError(
+                            FStr() I`$(fc.args[argIndex].loc): Argument \
+                                    $(argIndex + 1) does not match the \
+                                    argument list of function of type \
+                                    $(callableType.params[typeIndex])`
+                        );
+
+                    ++typeIndex;
+                }
+
+                # Consume the argument.
+                cmd.args.append(argExpr.asTerm());
+                ++argIndex;
+                argExpr = null;
+            }
+
+            # Make sure we've consumed all arguments and all types.
+
+            if (argIndex < fc.args.count())
+                throw ParseError(
+                    FStr() I`$(fc.loc): Too many arguments for function \
+                             of type $(callableType)`
+                );
+
+            # Forward past any multi-parm types at the end that we haven't
+            # processed.
+            while (typeIndex < callableType.params.count() &&
+                   callableType.params[typeIndex].isa(MultiParm))
+                ++typeIndex;
+            if (typeIndex < callableType.params.count())
+                throw ParseError(
+                    FStr() I`$(fc.loc): Not enough arguments for function \
+                             of type $(callableType)`
+                );
+
+            # If the func expression is a field reference, we don't want to do
+            # '(o.f) arg...", we want to do "o.f arg...".  So combine the
+            # arguments with the original field ref and do that instead.
+            if (fc.func.isa(FieldRef)) {
+                Command.cast(funcExpr.asValue()).args.extend(cmd.args);
+                return funcExpr;
+            }
+
+            return ValueExprWrapper(cmd, returnType);
         } else if (vd := VarDef.cast(node, null)) {
-            define(Def(vd.name.text));
+            # Process the initializer.
+            ExprWrapper initializer;
+            if (vd.initializer) {
+                initializer = convert(vd.initializer);
+            } else {
+                @assert(vd.type);
+            }
+
+            # Process or infer the declared type, verify that it is compatible
+            # with the initializer type.
+            Type type;
+            if (vd.type) {
+                type = convert(vd.type).type;
+                if (initializer && !initializer.type.compatibleWith(type))
+                    throw ParseError(
+                        FStr() I`$(vd.initializer.loc): Initializer type is \
+                                 not compatible with declared type $(type)`
+                    );
+            } else {
+                type = initializer.type;
+            }
+
+            define(Def(vd.name.text, type));
             return ValueExprWrapper(
                 VarDefValue(V1SrcLoc(vd.loc.getRow()),
-                                    vd.name.text,
-                                    vd.initializer ?
-                                        convert(vd.initializer).asValue() :
-                                        null
-                            )
+                                     vd.name.text,
+                                     initializer ? initializer.asValue() :
+                                                   null
+                            ),
+                type
             );
         } else if (ass := Assignment.cast(node, null)) {
+            expr := convert(ass.value);
             return ValueExprWrapper(
                 VarSetValue(V1SrcLoc(ass.loc.getRow()),
                             ass.name.text,
-                            convert(ass.value).asValue()
-                            )
+                            expr.asValue()
+                            ),
+                expr.type
             );
         } else if (fd := FuncDef.cast(node, null)) {
-            define(Def(fd.name.text));
             parms := Array[String]();
+            typeParams := Array[Type]();
             pushFrame();
             for (parm :in fd.args) {
                 parms.append(parm.name.text);
-                define(Def(parm.name.text));
+                parmType := convert(parm.type).type;
+                typeParams.append(parmType);
+                define(Def(parm.name.text, parmType));
             }
             body := _convertBlock(fd.body);
+
+            Type returnType;
+            if (fd.returnType)
+                returnType = evalTypeAST(fd.returnType);
+            if (returnType is null) {
+                returnType = body.type;
+            } else if (!body.type.compatibleWith(returnType)) {
+                throw ParseError(
+                    FStr() I`$(fd.loc): Function return type $(returnType) \
+                             is not compatible with one of the return values \
+                             of the function body.`
+                );
+            }
+            typeParams.insert(0, returnType);
 
             result := ValueExprWrapper(FuncDefValue(V1SrcLoc(fd.loc.getRow()),
                                                     fd.name.text,
                                                     parms,
                                                     null, // docs
-                                                    body
-                                                    )
+                                                    body.block
+                                                    ),
+                                       returnType
                                        );
             popFrame();
+            define(Def(fd.name.text,
+                       CALLABLE_GENERIC.get(OBJECT_PARENTS, typeParams)
+                       )
+                   );
             return result;
 
         } else if (fr := FieldRef.cast(node, null)) {
-            cmd := Command(convert(fr.primary).asTerm());
+            expr := convert(fr.primary);
+            cmd := Command(expr.asTerm());
             cmd.args.append(LiteralStringTerm(fr.field.text,
                                               V1SrcLoc(fr.field.loc.getRow())
                                               )
                             );
-            return ValueExprWrapper(cmd);
+            return ValueExprWrapper(cmd, expr.type);
 
         } else {
             throw Exception(FStr() `Unknown AST node type: $(node.class.name)`);
@@ -445,8 +709,21 @@ void _populateCompileContext(CompileContext compileCtx, LexCtx lexCtx) {
     _populateCompileContext(compileCtx, lexCtx.parent);
 
     # Add everything from the current context to the dictionary.
-    for (entry :in lexCtx)
-        compileCtx.topFrame[entry.key] = Def(entry.key);
+    for (entry :in lexCtx) {
+        Def def;
+        if (sv := SimpleValue.cast(entry.val, null)) {
+            if (type := Type.cast(sv.val, null))
+
+                # Types get special treatment, since we evaluate them at compile
+                # time.
+                def = TypeDef(entry.key, type);
+        }
+
+        if (def is null)
+            # Everything else should be a callable.
+            def = Def(entry.key, getCallableTypeForValue(entry.val));
+        compileCtx.topFrame[entry.key] = def;
+    }
 }
 
 ## Populate symbols in the compile context from those in an eval context.

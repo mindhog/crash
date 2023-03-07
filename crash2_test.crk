@@ -33,6 +33,7 @@ Object eval(String script) {
 @assert(eval("
     func f(arg: String) : String { give arg }
     f 'ok'") == 'ok');
+@assert(eval("if (1) { func f(arg: String) { } }"));
 @assert(eval("
     o := object { func f(arg: String) { give arg } }
     o.f 'this is a test'") == 'this is a test');
@@ -53,7 +54,7 @@ try {
     eval("foo");
     @assert(false);
 } catch (ParseError ex) {
-    @assert(ex.text == 'filename:1:0: Undefined function foo');
+    @assert(ex.text == 'filename:1:0: Undefined identifier foo');
 }
 
 try {
@@ -65,5 +66,35 @@ try {
 
 @assert(eval("x := (y := 'first'; format y ' thing'); give x") ==
         'first thing');
+
+try {
+    eval("func f(s: String) { }; f 100");
+    @assert(false);
+} catch (ParseError ex) {
+    @assert(ex.text ==
+            'filename:1:25: Argument 1 does not match the argument list of '
+            'function of type String');
+}
+
+try {
+    eval("func f(): Int { give 'test'}");
+    @assert(false);
+} catch (ParseError ex) {
+    @assert(ex.text ==
+            'filename:1:0: Function return type IntObj is not compatible with '
+            'one of the return values of the function body.');
+}
+
+try {
+    eval("x : String = 100");
+    @assert(false);
+} catch (ParseError ex) {
+    @assert(ex.text ==
+            'filename:1:13: Initializer type is not compatible with declared '
+            'type String');
+}
+
+# Need to verify that the return type defaults to the conjoined type of the
+# body's returns.
 
 cerr `ok\n`;

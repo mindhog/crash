@@ -54,6 +54,8 @@ class CrashError : Exception {
     }
 }
 
+class Type;
+
 ## Type specifier for ParmInfo.
 @interface TypeSpec {
 
@@ -61,6 +63,8 @@ class CrashError : Exception {
     ##
     ## This should be a "fully qualified" type name.
     String oper .desc() { return '<Undefined>' }
+
+    @abstract Type toType();
 }
 
 # The "any type."  We can't make this a constant because it has to be defined
@@ -181,7 +185,8 @@ const NULL_DEFAULT := ConstInitializer(null);
 alias PPI = ParmInfo.create;
 alias API = Array[ParmInfo];
 
-const _DEFAULT_PARM_LIST := Array[ParmInfo]![ParmInfo.createDefault()];
+# We have to add the default parm to this after types are initialized.
+const _DEFAULT_PARM_LIST := Array[ParmInfo]![];
 
 ## A value stored in an EvalContext.  We don't store data values directly,
 ## they always are evaluated.  In this way, we can do things like override
@@ -210,6 +215,13 @@ const _DEFAULT_PARM_LIST := Array[ParmInfo]![ParmInfo.createDefault()];
     ## By default, this is just an array containing a single default ParmInfo
     ## object, indicating that the value accepts any list of arguments.
     Array[ParmInfo] getParmInfo() { return _DEFAULT_PARM_LIST }
+
+    ## Returns the type of the value.
+    TypeSpec getType() { return _anyType }
+
+    ## If the value is a generic command (one whose types adapt to the
+    ## context) then this returns that generic type.  Otherwise, returns null.
+    Type getGenericType() { return null }
 }
 
 ## A variable dictionary.
@@ -544,7 +556,13 @@ class Type : Obj @implements TypeSpec {
         return null;
     }
 
+    void formatTo(Formatter out) {
+        out `Type instance`;
+    }
+
     String oper .desc() { return FStr() `$this` }
+
+    Type toType() { return this }
 }
 
 class DefaultType : Type {
@@ -607,6 +625,13 @@ class CompositeType : Type {
             return Object.cmp(other);
     }
 
+    void formatTo(Formatter out) {
+        out `$(this.class.name)[`;
+        for (param :in params)
+            out `$param,`;
+        out `]`;
+    }
+
     uint makeHashVal() {
         return parents.makeHashVal() ^ params.makeHashVal();
     }
@@ -621,9 +646,9 @@ class CallableType : CompositeType {
     }
 }
 
-## Generic type is a factory for composite types.  It is itself a Crack
-## generic so we can subclass CompositeType.
-class GenericType[T] : Obj {
+## GenericStore is a collection of CompositeType which instantiates new types
+## on demand.
+@interface GenericStore[T] {
     HashMap[T, T] __map = {};
 
     T get(Array[Type] parents, Array[Type] params) {
@@ -637,6 +662,18 @@ class GenericType[T] : Obj {
     }
 }
 
+## Generic type is a factory for composite types.  It is itself a Crack
+## generic so we can subclass CompositeType.
+class GenericType[T] @impl GenericStore[T] {}
+
+## Type for generic functions.  These produce new function types based on a
+## set of parameter types.
+##
+## This is derived from Type just so that it can be returned from
+## Value.getType().  Instances of this should not be visible to the user.
+@abstract class GenericFuncType : Type @implements GenericStore[CallableType] {
+    @abstract CallableType getTypeFor(Array[Type] params);
+}
 
 # BuiltinType registration system.  Only one BuiltinType can exist for each
 # primitive class, so we track them in a registry hashtable, which must be
@@ -668,12 +705,15 @@ const CLASS_TYPE := BuiltinType(Class, OBJECT_PARENTS);
 const STRING_TYPE := BuiltinType(String, OBJECT_PARENTS);
 const VOID_TYPE := BuiltinType(void, ANY_PARENTS);
 
-const CALLABLE_TYPE := GenericType[CallableType]();
+const CALLABLE_GENERIC := GenericType[CallableType]();
 
 const NUMBER_TYPE := BuiltinType(Number, OBJECT_PARENTS);
 const NUMBER_PARENTS := Array[Type]![NUMBER_TYPE];
 const INT_TYPE := BuiltinType(IntObj, NUMBER_PARENTS);
 const FLOAT_TYPE := BuiltinType(FloatObj, NUMBER_PARENTS);
+
+# Fill in the default parm list now that we've initialized _anyType.
+_DEFAULT_PARM_LIST.append(ParmInfo.createDefault());
 
 ## Utility function to create builtin types on demand for the
 ## ParmInfo.create() convenience methods.  We have to define this after
@@ -687,6 +727,84 @@ TypeSpec _getBuiltinTypeSpec(Class type) {
     # Create the type here.  We assume it to be derived from Object.  If the
     # class is not, the user should create an instance prior to this.
     return BuiltinType(type, OBJECT_PARENTS);
+}
+
+## Type describing a list of multiple function parameters all derived from a
+## common base class.
+##
+## When present in the parameters of a CallableType, this indicates that the
+## callable will consume any number of arguments matching the arg type.
+class MultiParm : CompositeType {
+    oper init(Type argType) :
+        CompositeType(OBJECT_PARENTS, Array[Type]![argType]) {
+    }
+}
+
+## Generic type for MultiParm.  We don't use GenericType for this because the
+## get() method is very different.
+class MultiParmGeneric : Obj {
+    HashMap[MultiParm, MultiParm] __map = {};
+
+    MultiParm get(Type argType) {
+        inst := MultiParm(argType);
+        result := __map.get(inst);
+        if (result is null) {
+            result = inst;
+            __map[inst] = inst;
+        }
+        return result;
+    }
+}
+
+const MULTI_PARM_GENERIC := MultiParmGeneric();
+
+## The magical "All" type, which is compatible with anything.
+##
+## This serves as a bridge between dynamic crash objects and the type-system
+## so we don't have to create a complete system in one pass.  However, there
+## may be longer term applications for it, such as providing fully dynamic
+## objects.
+class AllType : CallableType {
+
+    oper init() : CallableType(OBJECT_PARENTS, Array[Type]![null]) {
+        # Cyclic link, here.  We need to use an array abstraction for params
+        # so that it can accept any number of arguments.
+        params[0] = this;
+        params.append(ANY_TYPE);
+    }
+
+    bool compatibleWith(Type other) { return true }
+
+    void formatTo(Formatter out) { out `All` }
+
+    # Have to implement these so we don't stack overflow when hashing or
+    # comparing.
+    uint makeHashVal() { return uintz(this) }
+}
+
+const ALL_TYPE := AllType();
+
+## Returns the CallableType for the given value.
+Type getCallableTypeForValue(Value val) {
+
+    # For generic commands, this is easy.
+    if (gt := val.getGenericType())
+        return gt;
+
+    params := Array[Type]();
+
+    # Add the return type.
+    params.append(val.getType().toType());
+
+    # Add the parameter types.
+    for (parm :in val.getParmInfo()) {
+        if (parm.mult)
+            params.append(MULTI_PARM_GENERIC.get(parm.type.toType()));
+        else
+            params.append(parm.type.toType());
+    }
+
+    return CALLABLE_GENERIC.get(OBJECT_PARENTS, params);
 }
 
 # The various builtin command classes.
@@ -746,6 +864,25 @@ class ProcCmd : Builtin {
     }
 }
 
+## The type of the "give" comamnd is the only generic function type we really
+## need to deal with so far, the return type is the type of its parameter.
+##
+## TODO: Replace with a more general model for inferring function type.
+class GiveCmdType : GenericFuncType {
+    CallableType getTypeFor(Array[Type] params) {
+        if (params.count() == 1)
+            return get(OBJECT_PARENTS, Array[Type]![params[0], params[0]]);
+        else
+            return null;
+    }
+
+    void formatTo(Formatter out) {
+        out `GiveCmdType`;
+    }
+}
+
+const GIVE_CMD_TYPE := GiveCmdType();
+
 ## "give" just returns the value of its first argument.
 class GiveCmd : Builtin {
     String getDoc() {
@@ -770,6 +907,10 @@ class GiveCmd : Builtin {
 
     Array[ParmInfo] getParmInfo() {
         return Array[ParmInfo]![PPI('arg', _anyType)];
+    }
+
+    Type getGenericType() {
+        return GIVE_CMD_TYPE;
     }
 }
 
@@ -1334,6 +1475,8 @@ class ObjectCmd : Builtin {
 
         return Obj(vars);
     }
+
+    TypeSpec getType() { return ALL_TYPE }
 
     API getParmInfo() {
         return API![PPI('block', blockType)];
