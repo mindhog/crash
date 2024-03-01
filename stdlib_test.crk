@@ -18,6 +18,7 @@ import crack.lang Exception;
 import crack.sys env;
 import crash createRootContext, eval, parseString, Builtin, EvalContext,
     ANY_TYPE, API, PPI;
+import collections collections;
 import stdlib stdlib;
 import types BoolObj, IntObj, Number;
 
@@ -47,6 +48,7 @@ class TestFunc : Builtin {
 
 Object ev(String code) {
     ctx := createRootContext();
+    ctx.define('collections', collections());
     ctx.define('stdlib', stdlib());
     ctx.define('testfunc', TestFunc());
     return eval(code, ctx);
@@ -77,6 +79,15 @@ result = ev(I"
     exists /tmp/testfile2.dat
     ");
 @assert(result == BoolObj(false));
+
+result = ev(I"
+    import [stdlib] open
+    import [collections] arrayOf array
+    open /tmp/testfile.dat w | write 'some data\nother data\n'
+    var lines [arrayOf [open /tmp/testfile.dat r | readLines]]
+    give [== $lines [array 'some data\n' 'other data\n']]
+    ");
+@assert(result == BoolObj(true));
 
 @assert(ev(I"import [stdlib] doc; doc $doc") ==
         ' Returns the doc string for a value.\n');

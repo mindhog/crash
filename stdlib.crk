@@ -18,17 +18,19 @@ import crack.ascii lstrip, radix, rstrip;
 import crack.cont.array Array;
 import crack.fs makePath;
 import crack.io cerr, cout, Formatter, FStr, Reader, Seekable, Writer;
+import crack.io.readers LineReader;
 import crack.lang cmp, AppendBuffer, CString, Exception;
 import crack.regex Regex;
 import crack.runtime runtimeSleep = sleep;
 import crack.strutil split;
 import crack.sys env;
 import crack.time Date, Time, TimeDelta, BILLION;
+import .collections wrapIterator, Iter;
 import .crash createRootContext, eval, Builtin, EvalContext, Obj, ObjOf, Value,
     ParmInfo;
 import .types BoolObj, IntObj;
 
-@import crack.ann cvars;
+@import crack.ann cvars, impl;
 @import .ann function;
 
 @function(Reader) String read(int bytes) {
@@ -43,6 +45,20 @@ import .types BoolObj, IntObj;
     }
     return String(buf, true);
 }
+
+class LineIter : Iter {
+    LineReader __src;
+    String __cur;  # The current line.
+
+    oper init(Reader src) : __src = LineReader(src), __cur = __src.readLine() {}
+
+    Object elem() { return __cur }
+    bool next() { return __cur = __src.readLine() }
+    bool isTrue() { return __cur }
+}
+
+## Returns an iterator over the lines of the Reader.
+@function(Reader) Obj readLines() { return wrapIterator(LineIter(self)) }
 
 @function(Writer) int write(String data) {
     self.write(data);
@@ -66,6 +82,7 @@ class ValueError : Exception {
         reader := makePath(filename).reader();
         result.define('read', read(reader));
         result.define('readAll', readAll(reader));
+        result.define('readLines', readLines(reader));
     } else if (mode == 'w') {
         writer := makePath(filename).writer();
         result.define('write', write(writer));
