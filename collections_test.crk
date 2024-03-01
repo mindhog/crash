@@ -76,6 +76,14 @@ Object ev(String code) {
 @assert(ev("concat [range 1.0 2.05 0.1]") ==
         '1.0000001.1000001.2000001.3000001.4000001.5000001.6000001.700000'
         '1.8000001.9000002.000000');
+@assert(ev("var m [map first 100 second 200]
+            m delete first
+            m iter | each x {
+                p [x key]
+                p [x val]
+            }
+            give $result") == 'second200');
+
 
 cerr `ok\n`;
 

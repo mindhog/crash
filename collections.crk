@@ -367,6 +367,8 @@ class MapObjIter : Iter {
     bool isTrue() { return __iter.isTrue() }
 }
 
+alias ObjectMapObj = ObjOf[ObjectMap];
+
 ## Returns an iterator over the elements of a map.
 @function(ObjectMap) Obj Map_iter() {
     return wrapIterator(MapObjIter(self.iter()));
@@ -391,12 +393,22 @@ class MapObjIter : Iter {
     return val;
 }
 
+## Delete the element with the given key.
+## map delete <key>
+@function(ObjectMap) ObjectMap Map_delete(Object key) {
+    self.delete(key);
+    # TODO: Returning self isn't very useful, we'd like to return the crash
+    # object wrapper, but there's no way to access that yet.
+    return self;
+}
+
 Obj makeMapObj(ObjectMap map) {
-    result := ObjOf[ObjectMap](map);
+    result := ObjectMapObj(map);
     result.define('iter', Map_iter(map));
     result.define('count', Map_count(map));
     result.define('get', Map_get(map));
     result.define('put', Map_put(map));
+    result.define('delete', Map_delete(map));
     return result;
 }
 
