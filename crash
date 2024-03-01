@@ -19,6 +19,7 @@ import crack.lang Exception;
 import crack.sys argv;
 import crash createRootContext, eval, CrashError;
 import repl classicSyntax, REPL;
+import regex regex;
 import stdlib stdlib;
 import collections collections;
 import zulsyn syntax;
@@ -26,6 +27,7 @@ import zulsyn syntax;
 ctx := createRootContext();
 ctx.define('stdlib', stdlib());
 ctx.define('collections', collections());
+ctx.define('regex', regex());
 
 repl := REPL(ctx);
 ctx.define('syntax', syntax(repl));

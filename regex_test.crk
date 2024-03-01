@@ -1,0 +1,61 @@
+# Copyright 2020 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import crack.io cout, cerr;
+import crash createRootContext, eval;
+import regex regex;
+import types IntObj;
+
+@import crack.ann assert;
+
+Object ev(String code) {
+    ctx := createRootContext();
+    ctx.define('regex', regex());
+    eval("
+        import [regex] regex
+      ", ctx);
+    return eval(code, ctx);
+}
+
+# Test "match" and all variations on the Match methods.
+@assert(ev("regex 'foo/(.*)/bar' | match 'nomatch'") is null);
+@assert(ev("regex 'foo/(.*)/bar' | match 'foo/baz/bar' | group 0") ==
+        'foo/baz/bar');
+@assert(ev("regex 'foo/(.*)/bar' | match 'foo/baz/bar' | group 1") == 'baz');
+@assert(ev("regex 'foo/(?<name>.*)/bar' | match 'foo/baz/bar' | group name") ==
+        'baz');
+@assert(ev("regex 'foo/(.*)/bar' | match 'foo/baz/bar' | begin 0") ==
+        IntObj(0));
+@assert(ev("regex 'foo/(.*)/bar' | match 'foo/baz/bar' | begin 1") ==
+        IntObj(4));
+@assert(ev("regex 'foo/(.*)/bar' | match 'foo/baz/bar' | end 0") ==
+        IntObj(11));
+@assert(ev("regex 'foo/(.*)/bar' | match 'foo/baz/bar' | end 1") ==
+        IntObj(7));
+
+# Test "search".  We don't repeat the tests of various Match methods here,
+# as these have already been tested and it's the same code.
+@assert(ev("regex 'foo/(.*)/bar' | search 'nomatch' 0") is null);
+@assert(ev("regex 'foo/(.*)/bar' | search 'hello foo/baz/bar' 0 | group 0") ==
+        'foo/baz/bar');
+@assert(ev("regex 'foo/(.*)/bar' | search 'hello foo/baz/bar' 0 | group 1") ==
+        'baz');
+@assert(ev("regex 'foo/(.*)/bar' | search 'foo/blech/bar foo/baz/bar' 13 | \\
+           group 1") == 'baz');
+@assert(ev("regex 'foo/(.*)/bar' | search 'foo/blech/bar foo/baz/bar' 13 | \\
+           begin 0") == IntObj(14));
+@assert(ev("regex 'foo/(.*)/bar' | search 'foo/blech/bar foo/baz/bar' 13 | \\
+           end 0") == IntObj(25));
+cerr `ok\n`;
+

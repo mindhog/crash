@@ -1,0 +1,97 @@
+## Regular expression support.
+#
+# Copyright 2020 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import crack.cont.array Array;
+import crack.lang CString;
+import crack.regex Match, Regex;
+import .crash createRootContext, eval, Builtin, EvalContext, Obj, ObjOf, Value,
+    ParmInfo;
+import .types toInt, IntObj;
+
+@import .ann function;
+
+alias RegexObj = ObjOf[Regex];
+alias MatchObj = ObjOf[Match];
+
+MatchObj makeMatchObj(Match match) {
+    result := MatchObj(match);
+
+    ## Returns the index of the beginning of the group.
+    ##
+    ## 'group' can either be a group index (an integer) or a group name.
+    @function(Match) int begin(String group) {
+        if ((i := toInt(group)) !is null)
+            return self.begin(i.val);
+        return self.begin(group.toCString());
+    }
+
+    ## Returns the index of the end of the group.
+    ##
+    ## 'group' can either be a group index (an integer) or a group name.
+    @function(Match) int end(String group) {
+        if ((i := toInt(group)) !is null)
+            return self.end(i.val);
+        return self.end(group.toCString());
+    }
+
+    ## Returns a string of the text of the group.
+    ##
+    ## 'group' can either be a group index (an integer) or a group name.
+    @function(Match) String group(String group) {
+        if ((i := toInt(group)) !is null)
+            return self.group(i.val);
+        return self.group(group.toCString());
+    }
+
+    result.define('begin', begin(match));
+    result.define('end', end(match));
+    result.define('group', group(match));
+    return result;
+}
+
+@function RegexObj _regex(String pattern) {
+    rx := Regex(pattern);
+    result := RegexObj(rx);
+
+    ## If the regex matches at the beginning of target, returns a Match
+    ## object.  Otherwise returns null.
+    @function(Regex) MatchObj match(String target) {
+        m := self.match(target);
+        if (m is null)
+            return null;
+        return makeMatchObj(m);
+    }
+
+    ## Searches for the first occurrence of the regex in the target starting
+    ## at or after position 'start'.
+    @function(Regex) MatchObj search(String target, int start) {
+        m := self.search(target, start);
+        if (m is null)
+            return null;
+        return makeMatchObj(m);
+    }
+
+    result.define('match', match(rx));
+    result.define('search', search(rx));
+    return result;
+}
+
+@function Obj regex() {
+    result := Obj();
+    result.define('regex', _regex());
+    return result;
+}
+
