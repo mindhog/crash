@@ -26,6 +26,10 @@ Number _toFloat(String val);
 
 int _numericCmp(Number a, Number b);
 
+class TypeError : Exception {
+    oper init(String message) : Exception(message) {}
+}
+
 @interface Number {
     @abstract Number plus(Number other);
     @abstract Number minus(Number other);
@@ -33,12 +37,26 @@ int _numericCmp(Number a, Number b);
     @abstract Number div(Number other);
     @abstract Number mod(Number other);
 
-    @static Number convertNum(Object val) {
+    ## Convert 'val' to a number (either IntObj or FloatObj).
+    ##
+    ## If 'throwOnError' is true, throws a TypeError if the value can't be
+    ## converted, otherwise returns null in that case.
+    @static Number convertNum(Object val, bool throwOnError) {
+        @define error() {
+            if (throwOnError)
+                throw TypeError(FStr() `Cannot convert '$val' to a number`);
+            else
+                return null;
+        }
+
         if (!((v := String.cast(val, null)) is null)) {
+            # Check for empty string.
+            if (!v) @error();
 
             # see if this is an integer or float.
             isInt := true;
-            for (int i = 0; i < v.count(); ++i) {
+            int i;
+            for (; i < v.count(); ++i) {
 
                 # It can still be an integer if it starts with plus or minus
                 if (i == 0 && (v[i] == b'-' || v[i] == b'+'))
@@ -50,6 +68,22 @@ int _numericCmp(Number a, Number b);
                 }
             }
 
+            # Verify that this is a well-formed float.
+            if (i < v.count()) {
+                if (v[i] == b'e' || v[i] == b'E') {
+                    if (++i == v.count())
+                        @error();
+
+                    if (v[i] == b'+' || v[i] == b'-')
+                        ++i;
+
+                    for (; i < v.count(); ++i) {
+                        if (!isDigit(v[i]))
+                            @error();
+                    }
+                }
+            }
+
             if (isInt)
                 return _toInt(v);
             else
@@ -57,8 +91,12 @@ int _numericCmp(Number a, Number b);
         } else if (!((v := Number.cast(val, null)) is null)) {
             return v;
         } else {
-            throw Exception(FStr() `Cannot convert $val to a number`);
+            @error()
         }
+    }
+
+    @static Number convertNum(Object val) {
+        return convertNum(val, true);
     }
 
     class _ObjectCmp = Object {
@@ -202,4 +240,10 @@ int _numericCmp(Number a, Number b) {
     else
         throw Exception(FStr() I`can't compare types $(a.class.name) and \
                                  $(b.class.name)`);
+}
+
+## Returns an IntObj if val contains an integer, null if not.  'val' may be
+## null.
+IntObj toInt(Object val) {
+    return IntObj.cast(Number.convertNum(val, false), null);
 }

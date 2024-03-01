@@ -1,0 +1,13 @@
+import crack.io cerr;
+import .types toInt, IntObj;
+
+@import crack.ann assert;
+
+@assert(toInt('123') == IntObj(123));
+@assert(toInt('0') == IntObj(0));
+@assert(toInt(null) is null);
+@assert(toInt('') is null);
+@assert(toInt('foo bar') is null);
+@assert(toInt('12x') is null);
+
+cerr `ok\n`;
