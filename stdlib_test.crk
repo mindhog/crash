@@ -216,6 +216,12 @@ cout = oldCout;
         '    This is the document body.\012'
         );
 
+# String functions
+@assert(ev("import [stdlib] strip; strip '  test  '") == 'test');
+@assert(ev("import [stdlib] lstrip; lstrip '  test  '") == 'test  ');
+@assert(ev("import [stdlib] rstrip; rstrip '  test  '") == '  test');
+@assert(ev("import [stdlib] substr; substr 'foobarbaz' 3 3") == 'bar');
+
 @assert(Number.convertNum('2') > Number.convertNum('1'));
 @assert(Number.convertNum('2') >= Number.convertNum('1'));
 @assert(Number.convertNum('2') >= Number.convertNum('2'));

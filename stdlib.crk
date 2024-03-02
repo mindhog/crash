@@ -14,7 +14,7 @@
 
 ## Crash standard library.
 
-import crack.ascii lstrip, radix, rstrip;
+import crack.ascii lstrip, radix, rstrip, strip;
 import crack.cont.array Array;
 import crack.fs makePath;
 import crack.io cerr, cout, Formatter, FStr, Reader, Seekable, Writer;
@@ -383,6 +383,26 @@ const Regex
     return TimeDelta(int32(secs), nsecs);
 }
 
+## Strips leading and trailing whitespace from a string.
+@function String _strip(String val) {
+    return strip(val);
+}
+
+## Strips trailing whitespace from a string.
+@function String _rstrip(String val) {
+    return rstrip(val);
+}
+
+## Strips leading whitespace from a string.
+@function String _lstrip(String val) {
+    return lstrip(val);
+}
+
+## Returns a substring of a string.
+@function String substr(String val, int start, int size) {
+    return val.substr(start, size);
+}
+
 ## Returns a module object for the standard library.
 ##
 ## Functions defined are:
@@ -405,5 +425,9 @@ const Regex
     obj.define('minutes', minutes());
     obj.define('seconds', seconds());
     obj.define('millis', millis());
+    obj.define('strip', _strip());
+    obj.define('lstrip', _lstrip());
+    obj.define('rstrip', _rstrip());
+    obj.define('substr', substr());
     return obj;
 }
