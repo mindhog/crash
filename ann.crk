@@ -26,7 +26,7 @@
 ##   @function 
 
 
-import crack.ann readBlock, readDelimited, NodeList;
+import crack.ann readBlock, readDelimited, NodeList, NodeListImpl, Tok;
 import crack.compiler CrackContext, Token, TOK_LPAREN, TOK_POPERRCTX,
     TOK_RPAREN;
 import crack.cont.array Array;
@@ -67,12 +67,13 @@ String convertArg(Arg arg, int index) {
         return FStr() I`$(arg.type).cast(convert(args[$index], $(arg.type)))`;
 }
 
-String convertResult(String crackType) {
-    if (crackType == 'int')
+String convertResult(NodeList crackType) {
+    t := crackType.toString(null);
+    if (t == 'int')
         return 'IntObj';
-    else if (crackType == 'bool')
+    else if (t == 'bool')
         return 'BoolObj';
-    else if (crackType == 'float')
+    else if (t == 'float')
         return 'FloatObj';
     else
         return '';
@@ -89,26 +90,108 @@ String _getCrashPrefix() {
     return curScope ? curScope.join('.') + '.' : '';
 }
 
-void function(CrackContext ctx) {
+## Parse a type.
+## We don't use crack.ann.Type.parse() for this because that's currently
+## broken for nested types.
+NodeList parseType(CrackContext ctx, NodeList result) {
+    tok := ctx.getToken();
+    if (!tok.isIdent())
+        ctx.error(tok, 'Identifier expected for type name'.buffer);
+    String name = {tok.getText()};
+    result.pushHead(Tok(tok));
+
+    # Check for nested types.
+    tok = ctx.getToken();
+    while (tok.isDot() || tok.isScoping()) {
+        result.pushHead(Tok(tok));
+        result.pushHead(Tok(getIdent(ctx)));
+        tok = ctx.getToken();
+    }
+
+    if (tok.isLBracket()) {
+        # got a left bracket, parse the type parameters
+        result.pushHead(Tok(tok));
+        while (true) {
+            parseType(ctx, result);
+            tok = ctx.getToken();
+            result.pushHead(Tok(tok));
+            if (tok.isRBracket()) {
+                break;
+            } else if (!tok.isComma()) {
+                text := 'Comma or right bracket expected in type definition';
+                ctx.error(tok, text.buffer)
+            }
+        }
+
+    } else {
+        ctx.putBack(tok);
+    }
+
+    return result;
+}
+
+NodeList parseType(CrackContext ctx) {
+    return parseType(ctx, NodeListImpl());
+}
+
+
+void _function(CrackContext ctx, bool newMethod) {
     String className;
 
     docs := ctx.consumeDocs();
     loc := ctx.getLocation();
 
+    bool passWrap;  # Pass the ObjOf wrapper into the function as "wrap".
+    bool passContext;  # Pass the EvalContext into the function as "ctx".
+
     # See if we've got a receiver type.
     NodeList receiverType;
     tok := ctx.getToken();
     if (tok.isLParen()) {
-        receiverType = readDelimited(ctx, TOK_LPAREN, TOK_RPAREN, false);
-        if (!ctx.getToken().isRParen())
-            ctx.error(tok, 'Expected closing paren'.buffer);
+        while (true) {
+            tok = ctx.getToken();
+            if (tok.isRParen())
+                break;
+
+            # Check for a keyword ("wrap" or "ctx")
+            bool gotKeyword;
+            if (tok.isIdent()) {
+                tokText := StaticString(tok.getText());
+                if (tokText == 'wrap')
+                    passWrap = gotKeyword = true;
+                else if (tokText == 'ctx')
+                    passContext = gotKeyword = true;
+                else
+                    ctx.putBack(tok);
+            }
+
+            if (!gotKeyword) {
+                # Parse a type.
+                if (receiverType)
+                    ctx.error(
+                        tok,
+                        'Already parsed type, expecting keyword or closing '
+                        'paren.'.buffer
+                    );
+
+                receiverType = parseType(ctx);
+            }
+
+            tok = ctx.getToken();
+            if (tok.isRParen())
+                break;
+            else if (!tok.isComma())
+                ctx.error(tok, 'Comma or closing paren expected.'.buffer);
+        }
     } else {
         ctx.putBack(tok);
     }
 
+    if (newMethod && !receiverType)
+        ctx.error(tok, 'Expecting receiver type.'.buffer);
+
     # read the return type
-    tok = getIdent(ctx);
-    retType := String(tok.getText());
+    retType := parseType(ctx);
     
     # read the name
     tok = getIdent(ctx);
@@ -134,12 +217,12 @@ void function(CrackContext ctx) {
     while (true) {
         if (tok.isRParen())
             break;
-        else if (tok.isComma())
-            tok = ctx.getToken();
+        else if (!tok.isComma())
+            ctx.putBack(tok);
         
-        # should be a type identifier        
-        checkIdent(ctx, tok);
-        arg := Arg(String(tok.getText()), null);
+        # should be a type identifier
+        type := parseType(ctx);
+        arg := Arg(type.toString(null), null);
 
         # get the arg name
         tok = getIdent(ctx);
@@ -177,6 +260,14 @@ void function(CrackContext ctx) {
     out I`
             @final $retType __call(\n`;
     
+    # Emit the special parameters.
+    if (passContext)
+        out `        EvalContext ctx,\n`;
+    if (passWrap)
+        out `        ObjOf[$receiverType] wrap,\n`;
+    if (newMethod)
+        out `        $receiverType self,\n`;
+
     for (arg :in args)
         out `        $(arg.type) $(arg.name),\n`;
     
@@ -188,8 +279,21 @@ void function(CrackContext ctx) {
     out I`
             Object invoke(EvalContext context, Array[Object] args) {
                 import $(_getCrashPrefix())crash convert;
+        `;
+
+    if (passWrap || newMethod)
+        out `        wrap := ObjOf[$receiverType].cast(context.receiver);\n`;
+
+    out I`
                 result := __call(
         `;
+
+    if (passContext)
+        out `       context,\n`;
+    if (passWrap)
+        out `       wrap,\n`;
+    if (newMethod)
+        out `       wrap.inst,\n`;
 
     int i;    
     for (arg :in args) {
@@ -219,7 +323,7 @@ void function(CrackContext ctx) {
     ctx.inject(@FILE.buffer, @LINE, block3.buffer);
     body.expand(ctx, null);
     ctx.inject(@FILE.buffer, @LINE, block2.buffer);
-    if (receiverType) {
+    if (receiverType && !newMethod) {
         # Emitting this:
         #   $receiverType self;
         #   oper init($receiverType self) : self = self {}
@@ -230,7 +334,15 @@ void function(CrackContext ctx) {
     }
     ctx.inject(@FILE.buffer, @LINE, block1.buffer);
     ctx.pushErrorContext(
-        FStr() I`Expanded from @function at \
+        FStr() I`Expanded from $(newMethod ? '@method' : '@function') at \
                  $(loc.getName()):$(loc.getLineNumber())\0`.buffer
     );
-}        
+}
+
+void function(CrackContext ctx) {
+    _function(ctx, false);
+}
+
+void method(CrackContext ctx) {
+    _function(ctx, true);
+}

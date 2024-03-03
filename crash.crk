@@ -236,6 +236,12 @@ class LexCtx {
     ## The variable dictionary.
     VarDict __vars = {};
 
+    ## Nullable.  This is used by Obj.invoke() to provide the current
+    ## receiver, which is useful for cascade methods to return the ObjOf
+    ## wrapper for 'self'.  It should be an instance of Obj, but we don't
+    ## enforce that because we need to do a typecast on it anyway.
+    Object receiver;
+
     oper init() {}
     oper init(LexCtx parent) : parent = parent {}
     oper init(LexCtx parent, VarDict vars) : parent = parent, __vars = vars {}
@@ -252,6 +258,16 @@ class LexCtx {
         } else {
             return val;
         }
+    }
+
+    ## Look up the receiver in this and all enclosing contexts.
+    @final Object getReceiver() {
+        if (receiver)
+            return receiver;
+        else if (parent)
+            return parent.getReceiver();
+        else
+            return null;
     }
 
     @final void define(String name, Value val) {
@@ -367,6 +383,10 @@ class EvalContext {
         frame.vars.set(name, val);
     }
 
+    @final Object oper .receiver() {
+        return frame.vars.getReceiver();
+    }
+
     @final void dump() {
         frame.vars.dump(20);
     }
@@ -468,6 +488,14 @@ class Obj : Builtin {
     oper init(VarDict vars) : vars = vars {}
     oper init() : vars() {}
 
+    ## Look up the name in the object or its ancestors.
+    Value lookUp(String name) {
+        val := vars.get(name);
+        if (!val && parent)
+            val = parent.lookUp(name);
+        return val;
+    }
+
     Object invoke(EvalContext context, Array[Object] args) {
         if (!args)
             return this;
@@ -476,11 +504,12 @@ class Obj : Builtin {
         if (!method)
             throw Exception('Method names must be strings.');
 
-        methodObj := vars.get(method);
+        methodObj := lookUp(method);
         if (!methodObj)
             throw Exception(FStr() `Undefined method: $method`);
 
         lexCtx := LexCtx(null, vars);
+        lexCtx.receiver = this;
         context.pushFuncFrame(lexCtx);
         Object result;
         try {
@@ -1049,6 +1078,8 @@ class NotEqualCmd : Builtin {
 class ObjOf[T] : Obj {
     T __inst;
     oper init(T inst) : __inst = inst {}
+
+    T oper .inst() { return __inst }
 
     void formatTo(Formatter out) {
         out `ObjOf[$(T.name)]($(__inst))`;

@@ -14,13 +14,13 @@
 
 import crack.cont.array Array;
 import crack.io cout, cerr, Formatter, FStr;
-import crack.lang cmp, Exception;
+import crack.lang cmp, Box, Exception;
 import crash createRootContext, eval, Builtin, CrashError, EvalContext, Obj,
     ObjOf, ParmInfo, Value;
 import types IntObj, BoolObj, FloatObj;
 import repl repl;
 
-@import ann function;
+@import ann function, method;
 @import crack.ann assert;
 
 @function int strlen(String name) {
@@ -166,6 +166,41 @@ try {
 # Verify that we don't do conversions when the parameter type is a base class
 # of ObjOf.
 @assert(eval('isObjOfB [B 100]', root));
+
+# Verify new-style methods, wrap and ctx flags.
+if (true) {
+    alias BoxObj = ObjOf[Box[int]];
+
+    @method(Box[int], wrap) BoxObj testMethod(int newVal) {
+        self.val = newVal;
+        return wrap;
+    }
+
+    @function(ctx) EvalContext getContext() { return ctx }
+    @function(Box[int], wrap, ctx) ObjOf[Box[int]] theWorks() {
+        self.val = ctx ? 1 : 0;
+        return wrap
+    }
+
+    proto := Obj();
+    proto.define('testMethod', testMethod());
+
+    rootCtx := createRootContext();
+    inner := Box[int](100);
+    obj := BoxObj(inner);
+    obj.parent = proto;
+    obj.define('theWorks', theWorks(inner));
+    rootCtx.define('obj', obj);
+    rootCtx.define('getContext', getContext());
+    result := eval('obj testMethod 200', rootCtx);
+    @assert(result is obj);
+    @assert(inner.val == 200);
+
+    @assert(eval('getContext', rootCtx).isa(EvalContext));
+    result = eval('obj theWorks', rootCtx);
+    @assert(result is obj);
+    @assert(inner.val == 1);
+}
 
 cout `ok\n`;
 
