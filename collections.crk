@@ -395,11 +395,9 @@ alias ObjectMapObj = ObjOf[ObjectMap];
 
 ## Delete the element with the given key.
 ## map delete <key>
-@function(ObjectMap) ObjectMap Map_delete(Object key) {
+@function(ObjectMap, wrap) ObjectMapObj Map_delete(Object key) {
     self.delete(key);
-    # TODO: Returning self isn't very useful, we'd like to return the crash
-    # object wrapper, but there's no way to access that yet.
-    return self;
+    return wrap;
 }
 
 Obj makeMapObj(ObjectMap map) {
