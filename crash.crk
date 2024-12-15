@@ -1075,6 +1075,46 @@ class NotEqualCmd : Builtin {
     }
 }
 
+class LessThanCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns true if the first argument is less than the second, false if
+            not.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: < <val1> <val2>');
+
+        return BoolObj(args[0].cmp(args[1]) < 0);
+    }
+
+    API getParmInfo() {
+        return API![PPI('val1', _anyType), PPI('val2', _anyType)];
+    }
+}
+
+class GreaterThanCmd : Builtin {
+    String getDoc() {
+        return I'\
+            Returns true if the first argument is greater than the second, false
+            if not.
+            ';
+    }
+
+    Object invoke(EvalContext context, Array[Object] args) {
+        if (args.count() != 2)
+            throw Exception('usage: > <val1> <val2>');
+
+        return BoolObj(args[0].cmp(args[1]) > 0);
+    }
+
+    API getParmInfo() {
+        return API![PPI('val1', _anyType), PPI('val2', _anyType)];
+    }
+}
+
 class ObjOf[T] : Obj {
     T __inst;
     oper init(T inst) : __inst = inst {}
@@ -2327,6 +2367,8 @@ EvalContext createRootContext() {
     ctx.define('%', ModCmd());
     ctx.define('==', EqualCmd());
     ctx.define('!=', NotEqualCmd());
+    ctx.define('<', LessThanCmd());
+    ctx.define('>', GreaterThanCmd());
 
     # Builtin classes.
     ctx.define('String', SimpleValue(STRING_TYPE));

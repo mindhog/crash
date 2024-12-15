@@ -189,11 +189,15 @@ try {
 # Effective test of IntObj(0) in an expression.
 @assert(eval("+ [+ 0]") == IntObj(0));
 
-# Test ==, !=
+# Test comparisons
 @assert(eval("== foo foo"));
 @assert(!eval("== foo bar"));
 @assert(eval("!= foo bar"));
 @assert(!eval("!= foo foo"));
+@assert(eval("< abel baker"));
+@assert(!eval("< baker abel"));
+@assert(eval("> baker able"));
+@assert(!eval("> able baker"));
 
 # Make sure backslashes work.
 @assert(eval('format \\\nfoo \\\nbar') == 'foobar')
