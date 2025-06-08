@@ -13,9 +13,10 @@
 # limitations under the License.
 
 import crack.cont.array Array;
+import crack.fs cwd, makePath, Path;
 import crack.io cout, cerr;
 import crack.lang Exception;
-import crash eval, parseString,
+import crash createRootContext, eval, parseString, SimpleValue,
     CompositeType, CrashError, GenericType, Type, INT_TYPE, OBJECT_TYPE,
     STRING_TYPE;
 import types BoolObj, IntObj, FloatObj;
@@ -169,6 +170,27 @@ try {
     var tm2 [load_module testmod.crash]
     tm2 getVal
 ") == 'NewValue');
+
+
+Object evalWithCrashPath(Object crashPath) {
+    import crash clearModuleMap;
+    clearModuleMap();
+    ctx := createRootContext();
+    ctx.define('CRASH_PATH', SimpleValue(crashPath));
+    return eval(
+        "
+        import [load_module testmod.crash] getVal
+        getVal
+        ",
+        ctx
+    );
+}
+
+@assert(evalWithCrashPath(Array[Object]![makePath('testdir'), cwd]) ==
+        'testdir');
+@assert(evalWithCrashPath(Array[Object]!['testdir', '.']) == 'testdir');
+@assert(evalWithCrashPath(Array[String]!['testdir', '.']) == 'testdir');
+@assert(evalWithCrashPath(Array[Path]![makePath('testdir'), cwd]) == 'testdir');
 
 @assert(eval("
     source testmod.crash

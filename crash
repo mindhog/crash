@@ -17,7 +17,7 @@ import crack.fs makePath;
 import crack.io cerr;
 import crack.lang Exception;
 import crack.sys argv;
-import crash createRootContext, eval, CrashError;
+import crash createRootContext, eval, setCrashPathFromEnv, CrashError;
 import repl classicSyntax, REPL;
 import regex regex;
 import stdlib stdlib;
@@ -32,6 +32,8 @@ ctx.define('regex', regex());
 repl := REPL(ctx);
 ctx.define('syntax', syntax(repl));
 repl.sendToInterp = classicSyntax;
+
+setCrashPathFromEnv(ctx, 'CRASH_PATH');
 
 if (argv.count() < 2) {
     repl.run();

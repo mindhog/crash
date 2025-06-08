@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import crack.ascii isDigit, isSpace, strip, wsplit;
-import crack.fs makePath;
+import crack.fs makePath, Path;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.fieldset FieldSet, HashMapFieldSet;
@@ -21,7 +21,8 @@ import crack.functor Functor0, Functor2;
 import crack.io cout, cerr, Formatter, FStr, StringFormatter;
 import crack.lang cmp, AppendBuffer, Exception, SubString;
 import crack.process Process;
-import crack.strutil StringArray;
+import crack.strutil split, StringArray;
+import crack.sys env;
 
 import .types BoolObj, FloatObj, IntObj, Number;
 
@@ -1624,7 +1625,25 @@ class EvalfileCmd : Builtin {
     }
 }
 
+# TODO: make this part of the EvalContext.
 _moduleMap := HashMap[String, Obj]();
+void clearModuleMap() {
+    _moduleMap.clear();
+}
+
+void setCrashPathFromEnv(EvalContext ctx, String envVar) {
+    paths := Array[Object]();
+    pathsObj := ObjOf[Array[Object]](paths);
+    envVarVal := env.get(envVar);
+    if (envVarVal) {
+        for (path :in split(envVarVal, b':'))
+            paths.append(makePath(path));
+        ctx.define('CRASH_PATH',
+                   SimpleValue(pathsObj,
+                               'List of root paths to look for crash modules.')
+                   );
+    }
+}
 
 ## Loads the named module if it is not already loaded and returns its module
 ## object.  This should be used in preference to evalfile for modules, as it
@@ -1635,6 +1654,10 @@ class LoadModuleCmd : Builtin {
         return I'\
             Returns the named module as an object, loading the file (ala
             "evalfile") if it is not already loaded.
+
+            If the filename is a relative path, searches for the file relative
+            to the paths specified in CRASH_PATH (which should be a list) or
+            from the current directory if CRASH_PATH is not defined.
 
             You may import symbols defined in the file from the result, for
             example:
@@ -1658,7 +1681,66 @@ class LoadModuleCmd : Builtin {
         if (mod := _moduleMap.get(name))
             return mod;
 
-        contents := makePath(name).readAll();
+        # Resolve relative paths against CRASH_PATH, if there is one.
+        Path modulePath;
+        if (!name.startsWith('/') && pathVar := context.lookUp('CRASH_PATH')) {
+
+            pathObj := pathVar.evaluate(context);
+            # Causes crack to seg-fault!
+            #paths := ObjOf[Array[Object]].cast(pathObj, null)?.inst;
+
+            # Convert a container array object to its array.
+            paths_o := ObjOf[Array[Object]].cast(pathObj, null);
+            paths_x := paths_o ? paths_o.inst : null;
+            if (paths_x ||
+                paths_x = Array[Object].cast(pathObj, null)) {
+                for (pathObj in paths_x) {
+                    Path path;
+                    if (pathStr := String.cast(pathObj, null))
+                        path = makePath(pathStr);
+                    else if (!(path = Path.cast(pathObj, null)))
+                        throw Exception(
+                            FStr() I`Object $pathObj in CRASH_PATH is neither \
+                                     a Path nor a String`
+                        );
+                    path = path/name;
+                    if (path.exists()) {
+                        modulePath = path;
+                        break;
+                    }
+                }
+            } else if (paths := Array[String].cast(pathObj, null)) {
+                for (pathStr :in paths) {
+                    path := makePath(pathStr)/name;
+                    if (path.exists()) {
+                        modulePath = path;
+                        break;
+                    }
+                }
+            } else if (paths := Array[Path].cast(pathObj, null)) {
+                for (path :in paths) {
+                    path = path/name;
+                    if (path.exists()) {
+                        modulePath = path;
+                        break;
+                    }
+                }
+            } else {
+                throw Exception(
+                    FStr() I`CRASH_PATH must be an array of String or Path \
+                             got $pathObj`
+                );
+            }
+
+            if (!modulePath)
+                throw Exception(
+                    FStr() `Module $name not found on search path.`
+                );
+        } else {
+            modulePath = makePath(name);
+        }
+
+        contents := modulePath.readAll();
         context.pushFuncFrame();
         parseString(contents).evaluate(context);
         if (!context.yield) {
