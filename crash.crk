@@ -1675,11 +1675,7 @@ class LoadModuleCmd : Builtin {
     Object invoke(EvalContext context, Array[Object] args) {
         if (args.count() != 1)
             throw Exception('Usage: evalfile <filename>');
-
         name := String.cast(args[0]);
-
-        if (mod := _moduleMap.get(name))
-            return mod;
 
         # Resolve relative paths against CRASH_PATH, if there is one.
         Path modulePath;
@@ -1739,6 +1735,9 @@ class LoadModuleCmd : Builtin {
         } else {
             modulePath = makePath(name);
         }
+
+        if (mod := _moduleMap.get(modulePath.getFullName()))
+            return mod;
 
         contents := modulePath.readAll();
         context.pushFuncFrame();
