@@ -232,7 +232,7 @@ alias VarDict = HashMap[String, Value];
 class LexCtx {
     ## The parent of a LexCtx is the LexCtx of the context in which the
     ## function is defined.
-    LexCtx parent;
+    LexCtx __parent;
 
     ## The variable dictionary.
     VarDict __vars = {};
@@ -243,9 +243,29 @@ class LexCtx {
     ## enforce that because we need to do a typecast on it anyway.
     Object receiver;
 
+    void _checkRecursive(String message) {
+        p := this.__parent;
+        while (p) {
+            if (p is this)
+                throw Exception(message);
+            p = p.__parent;
+        }
+    }
+
+    LexCtx oper .parent() { return __parent }
+    LexCtx oper .parent=(LexCtx parent) {
+        __parent = parent;
+        _checkRecursive('recursive in assignment');
+        return __parent;
+    }
+
     oper init() {}
-    oper init(LexCtx parent) : parent = parent {}
-    oper init(LexCtx parent, VarDict vars) : parent = parent, __vars = vars {}
+    oper init(LexCtx parent) : __parent = parent {
+        _checkRecursive('recursive in constructor 1');
+    }
+    oper init(LexCtx parent, VarDict vars) : __parent = parent, __vars = vars {
+        _checkRecursive('recursive in constructor 2');
+    }
 
     @final VarDict oper .vars() { return __vars }
 
@@ -397,7 +417,8 @@ class EvalContext {
     }
 
     @final void pushFuncFrame(LexCtx vars) {
-        vars.parent = frame.vars;
+        if (!vars.parent && vars !is frame.vars)
+            vars.parent = frame.vars;
         frame = Frame(frame, vars);
     }
 
@@ -1745,7 +1766,7 @@ class LoadModuleCmd : Builtin {
         if (!context.yield) {
             result := Obj(context.frame.vars.vars);
             context.popFuncFrame();
-            _moduleMap[name] = result;
+            _moduleMap[modulePath.getFullName()] = result;
             return result;
         } else {
             return null;
