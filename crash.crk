@@ -26,7 +26,7 @@ import crack.sys env;
 
 import .types BoolObj, FloatObj, IntObj, Number;
 
-@import crack.ann assert, cvars, define, impl, implements, interface;
+@import crack.ann assert, cvars, define, impl, implements, interface, override;
 @import crack.fieldset_ann fieldset_accessors;
 
 class EvalContext;
@@ -424,6 +424,25 @@ class EvalContext {
 
     @final void popFuncFrame() {
         frame = frame.parent;
+    }
+
+    ## Evaluate the value in a nested func frame, using 'ctx' as the context
+    ## for that frame.
+    ##
+    ## This allows you to define a set of commands and variables in 'ctx' that
+    ## can then be accessed by a block, simplifying the implementation of
+    ## the "scoped block" pattern. (e.g. "command { foo 10; bar 20 }" where
+    ## "foo" and "bar" are provided by "command" and scoped to the block)  It
+    ## can certainly be used to evaluate other Values within a scoped
+    ## context, as well.
+    ##
+    ## Returns the result of evaluating the block.
+    @final Object eval(LexCtx ctx, Value val) {
+        pushFuncFrame(ctx);
+        result := val.evaluate(this);
+        if (!yield)
+            popFuncFrame();
+        return result;
     }
 
     ## Define a value converter for the specified class.
@@ -1268,7 +1287,7 @@ class Command : Value {
 }
 
 ## A Block of commands.
-class Block {
+class Block : Value {
     Array[Value] commands = {};
 
     Object evaluate(EvalContext context) {
@@ -1297,6 +1316,16 @@ class Block {
     void formatTo(Formatter out) {
         for (cmd :in commands)
             out `$cmd\n`;
+    }
+
+    @override
+    Object invoke(EvalContext context, Array[Object] args) {
+        throw Exception('Block.invoke() is not yet defined.');
+    }
+
+    @override
+    void set(Object value) {
+        throw Exception('Can not set a block');
     }
 }
 

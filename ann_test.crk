@@ -15,8 +15,8 @@
 import crack.cont.array Array;
 import crack.io cout, cerr, Formatter, FStr;
 import crack.lang cmp, Box, Exception;
-import crash createRootContext, eval, Builtin, CrashError, EvalContext, Obj,
-    ObjOf, ParmInfo, Value;
+import crash createRootContext, eval, parseString, Block, Builtin,
+    CrashError, EvalContext, Obj, LexCtx, ObjOf, ParmInfo, Value;
 import types IntObj, BoolObj, FloatObj;
 import repl repl;
 
@@ -200,6 +200,20 @@ if (true) {
     result = eval('obj theWorks', rootCtx);
     @assert(result is obj);
     @assert(inner.val == 1);
+}
+
+# Test "scoped blocks".
+if (true) {
+    @function(ctx) Object evalBlock(String code) {
+        @function String getTestString() { return 'test' }
+        lexCtx := LexCtx();
+        lexCtx.define('getTestString', getTestString());
+        return ctx.eval(lexCtx, parseString(code));
+    }
+
+    rootCtx := createRootContext();
+    rootCtx.define('evalBlock', evalBlock());
+    @assert(eval('evalBlock { getTestString }', rootCtx) == 'test');
 }
 
 cout `ok\n`;
