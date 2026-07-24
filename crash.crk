@@ -226,7 +226,16 @@ const _DEFAULT_PARM_LIST := Array[ParmInfo]![];
 }
 
 ## A variable dictionary.
-alias VarDict = HashMap[String, Value];
+class VarDict : HashMap[String, Value] {
+    oper init() {}
+
+    VarDict clone() {
+        result := VarDict();
+        for (item :in this)
+            result[item.key] = item.val;
+        return result;
+    }
+}
 
 ## A lexical context.
 class LexCtx {

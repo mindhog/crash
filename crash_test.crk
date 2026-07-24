@@ -17,14 +17,25 @@ import crack.fs cwd, makePath, Path;
 import crack.io cout, cerr;
 import crack.lang Exception;
 import crash createRootContext, eval, parseString, SimpleValue,
-    CompositeType, CrashError, GenericType, Type, INT_TYPE, OBJECT_TYPE,
-    STRING_TYPE;
+    CompositeType, CrashError, GenericType, Type, VarDict, INT_TYPE,
+    OBJECT_TYPE, STRING_TYPE;
 import types BoolObj, IntObj, FloatObj;
 
 @import crack.ann assert;
 
 @assert(STRING_TYPE.compatibleWith(OBJECT_TYPE));
 @assert(STRING_TYPE.findCommonBase(INT_TYPE) is OBJECT_TYPE);
+
+if (true) {
+    d := VarDict();
+    d['foo'] = SimpleValue('fooval');
+    d['bar'] = SimpleValue('barval');
+    e := d.clone();
+    @assert(d['foo'] == e['foo']);
+    @assert(d['bar'] == e['bar']);
+    @assert(d.count() == e.count());
+    @assert(d !is e);
+}
 
 # Verify that generic instantiations always yield the same objects.
 if (true) {
